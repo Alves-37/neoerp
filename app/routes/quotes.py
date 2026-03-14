@@ -1,0 +1,302 @@
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import desc, func, select
+from sqlalchemy.orm import Session
+
+from app.database.connection import get_db
+from app.deps import get_current_user
+from app.models.product import Product
+from app.models.quote import Quote
+from app.models.quote_item import QuoteItem
+from app.models.sale import Sale
+from app.models.sale_item import SaleItem
+from app.models.user import User
+from app.schemas.quotes import ConvertQuotePayload, CreateQuotePayload, QuoteItemOut, QuoteOut, QuoteUpdatePayload
+
+router = APIRouter()
+
+
+def _next_quote_number(db: Session, company_id: int, series: str) -> int:
+    max_number = db.scalar(
+        select(func.max(Quote.number)).where(Quote.company_id == company_id).where(Quote.series == series)
+    )
+    return int(max_number or 0) + 1
+
+
+def _build_quote_out(db: Session, current_user: User, quote: Quote) -> QuoteOut:
+    items = db.scalars(
+        select(QuoteItem)
+        .where(QuoteItem.company_id == current_user.company_id)
+        .where(QuoteItem.quote_id == quote.id)
+        .order_by(QuoteItem.id.asc())
+    ).all()
+
+    return QuoteOut(
+        id=quote.id,
+        company_id=quote.company_id,
+        cashier_id=quote.cashier_id,
+        series=quote.series,
+        number=quote.number,
+        status=quote.status,
+        customer_name=quote.customer_name,
+        customer_nuit=quote.customer_nuit,
+        currency=quote.currency,
+        net_total=float(quote.net_total),
+        tax_total=float(quote.tax_total),
+        gross_total=float(quote.gross_total),
+        sale_id=quote.sale_id,
+        created_at=quote.created_at,
+        updated_at=quote.updated_at,
+        items=[QuoteItemOut.model_validate(i) for i in items],
+    )
+
+
+@router.get("", response_model=list[QuoteOut])
+@router.get("/", response_model=list[QuoteOut], include_in_schema=False)
+def list_quotes(
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    rows = db.scalars(
+        select(Quote)
+        .where(Quote.company_id == current_user.company_id)
+        .order_by(desc(Quote.id))
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    return [_build_quote_out(db, current_user, q) for q in rows]
+
+
+@router.post("", response_model=QuoteOut)
+@router.post("/", response_model=QuoteOut, include_in_schema=False)
+def create_quote(
+    payload: CreateQuotePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="Informe itens da cotação")
+
+    series = (payload.series or "A").strip().upper() or "A"
+
+    number = _next_quote_number(db, current_user.company_id, series)
+
+    net_total = 0.0
+    tax_total = 0.0
+    gross_total = 0.0
+
+    quote = Quote(
+        company_id=current_user.company_id,
+        cashier_id=current_user.id,
+        series=series,
+        number=number,
+        status="open",
+        customer_name=(payload.customer_name.strip() if payload.customer_name else None),
+        customer_nuit=(payload.customer_nuit.strip() if payload.customer_nuit else None),
+        currency=(payload.currency or "MZN"),
+        net_total=0,
+        tax_total=0,
+        gross_total=0,
+        sale_id=None,
+    )
+    db.add(quote)
+    db.flush()
+
+    for it in payload.items:
+        tax_rate = 0.0
+        if it.product_id:
+            p = db.get(Product, it.product_id)
+            if p and p.company_id == current_user.company_id:
+                tax_rate = float(getattr(p, "tax_rate", 0) or 0)
+
+        qty = float(it.qty or 0)
+        unit_price = float(it.unit_price or 0)
+        line_net = qty * unit_price
+        line_tax = line_net * (tax_rate / 100.0)
+        line_gross = line_net + line_tax
+
+        net_total += line_net
+        tax_total += line_tax
+        gross_total += line_gross
+
+        row = QuoteItem(
+            company_id=current_user.company_id,
+            quote_id=quote.id,
+            product_id=it.product_id,
+            product_name=it.product_name,
+            qty=qty,
+            unit_price=unit_price,
+            line_net=line_net,
+            tax_rate=tax_rate,
+            line_tax=line_tax,
+            line_gross=line_gross,
+        )
+        db.add(row)
+
+    quote.net_total = net_total
+    quote.tax_total = tax_total
+    quote.gross_total = gross_total
+
+    db.commit()
+    db.refresh(quote)
+    return _build_quote_out(db, current_user, quote)
+
+
+@router.put("/{quote_id}", response_model=QuoteOut)
+def update_quote(
+    quote_id: int,
+    payload: QuoteUpdatePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    quote = db.get(Quote, quote_id)
+    if not quote or quote.company_id != current_user.company_id:
+        raise HTTPException(status_code=404, detail="Cotação não encontrada")
+    if quote.status != "open":
+        raise HTTPException(status_code=400, detail="Só é possível editar cotações em aberto")
+    if quote.sale_id:
+        raise HTTPException(status_code=400, detail="Cotação já foi convertida")
+
+    data = payload.model_dump(exclude_unset=True)
+
+    if "series" in data and data["series"] is not None:
+        quote.series = (data["series"] or "A").strip().upper() or "A"
+    if "customer_name" in data:
+        quote.customer_name = data["customer_name"].strip() if data["customer_name"] else None
+    if "customer_nuit" in data:
+        quote.customer_nuit = data["customer_nuit"].strip() if data["customer_nuit"] else None
+    if "currency" in data and data["currency"] is not None:
+        quote.currency = data["currency"] or "MZN"
+
+    if "items" in data and data["items"] is not None:
+        items_in = data["items"]
+        if not items_in:
+            raise HTTPException(status_code=400, detail="Informe itens da cotação")
+
+        # remove itens atuais
+        db.query(QuoteItem).filter(QuoteItem.company_id == current_user.company_id).filter(QuoteItem.quote_id == quote.id).delete()
+
+        net_total = 0.0
+        tax_total = 0.0
+        gross_total = 0.0
+
+        for it in items_in:
+            tax_rate = 0.0
+            if it.get("product_id"):
+                p = db.get(Product, it["product_id"])
+                if p and p.company_id == current_user.company_id:
+                    tax_rate = float(getattr(p, "tax_rate", 0) or 0)
+
+            qty = float(it.get("qty", 0))
+            unit_price = float(it.get("unit_price", 0))
+            line_net = qty * unit_price
+            line_tax = line_net * (tax_rate / 100.0)
+            line_gross = line_net + line_tax
+
+            net_total += line_net
+            tax_total += line_tax
+            gross_total += line_gross
+
+            row = QuoteItem(
+                company_id=current_user.company_id,
+                quote_id=quote.id,
+                product_id=it.get("product_id"),
+                product_name=it.get("product_name"),
+                qty=qty,
+                unit_price=unit_price,
+                line_net=line_net,
+                tax_rate=tax_rate,
+                line_tax=line_tax,
+                line_gross=line_gross,
+            )
+            db.add(row)
+
+        quote.net_total = net_total
+        quote.tax_total = tax_total
+        quote.gross_total = gross_total
+
+    db.add(quote)
+    db.commit()
+    db.refresh(quote)
+    return _build_quote_out(db, current_user, quote)
+
+
+@router.delete("/{quote_id}", response_model=dict)
+def delete_quote(
+    quote_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    quote = db.get(Quote, quote_id)
+    if not quote or quote.company_id != current_user.company_id:
+        raise HTTPException(status_code=404, detail="Cotação não encontrada")
+    if quote.status != "open":
+        raise HTTPException(status_code=400, detail="Só é possível eliminar cotações em aberto")
+    if quote.sale_id:
+        raise HTTPException(status_code=400, detail="Cotação já foi convertida")
+
+    db.query(QuoteItem).filter(QuoteItem.company_id == current_user.company_id).filter(QuoteItem.quote_id == quote.id).delete()
+    db.delete(quote)
+    db.commit()
+    return {"deleted": True}
+
+
+@router.post("/{quote_id}/convert", response_model=dict)
+def convert_quote_to_sale(
+    quote_id: int,
+    payload: ConvertQuotePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    quote = db.get(Quote, quote_id)
+    if not quote or quote.company_id != current_user.company_id:
+        raise HTTPException(status_code=404, detail="Cotação não encontrada")
+    if quote.status != "open":
+        raise HTTPException(status_code=400, detail="Cotação já foi convertida/cancelada")
+
+    items = db.scalars(
+        select(QuoteItem)
+        .where(QuoteItem.company_id == current_user.company_id)
+        .where(QuoteItem.quote_id == quote.id)
+        .order_by(QuoteItem.id.asc())
+    ).all()
+    if not items:
+        raise HTTPException(status_code=400, detail="Cotação sem itens")
+
+    paid = float(payload.paid) if payload.paid is not None else float(quote.gross_total)
+
+    sale = Sale(
+        company_id=current_user.company_id,
+        cashier_id=current_user.id,
+        business_type="retail",
+        total=float(quote.gross_total),
+        paid=paid,
+        change=max(0.0, paid - float(quote.gross_total)),
+        payment_method=(payload.payment_method or "cash"),
+        status="paid",
+        sale_channel="counter",
+        table_number=None,
+        seat_number=None,
+        created_at=datetime.utcnow(),
+    )
+    db.add(sale)
+    db.flush()
+
+    for it in items:
+        si = SaleItem(
+            sale_id=sale.id,
+            product_id=it.product_id,
+            qty=float(it.qty),
+            price=float(it.unit_price),
+        )
+        db.add(si)
+
+    quote.status = "converted"
+    quote.sale_id = sale.id
+
+    db.commit()
+
+    return {"quote_id": quote.id, "sale_id": sale.id}
