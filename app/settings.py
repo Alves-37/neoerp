@@ -1,11 +1,21 @@
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/erpcrm"
+    database_url: str = Field(
+        default="postgresql://postgres:postgres@localhost:5432/erpcrm",
+        validation_alias=AliasChoices(
+            "DATABASE_URL",
+            "POSTGRES_URL",
+            "POSTGRESQL_URL",
+            "DATABASE_PUBLIC_URL",
+            "POSTGRES_PUBLIC_URL",
+            "RAILWAY_DATABASE_URL",
+        ),
+    )
     jwt_secret_key: str = "CHANGE_ME"
     jwt_algorithm: str = "HS256"
     jwt_access_token_minutes: int = 60 * 24
