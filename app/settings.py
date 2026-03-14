@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     upload_dir: str = "uploads"
 
-    cors_allow_origins: list[str] = ["http://localhost:5173"]
+    cors_allow_origins: list[str] = ["http://localhost:5173", "https://erpneo.vercel.app"]
 
     @field_validator("database_url")
     @classmethod
