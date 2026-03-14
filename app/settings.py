@@ -20,7 +20,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_access_token_minutes: int = 60 * 24
 
-    upload_dir: str = "uploads"
+    upload_dir: str = Field(
+        default="uploads",
+        validation_alias=AliasChoices(
+            "UPLOAD_DIR",
+            "UPLOADS_DIR",
+        ),
+    )
 
     cors_allow_origins: list[str] = ["http://localhost:5173", "https://erpneo.vercel.app"]
 

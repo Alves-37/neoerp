@@ -10,12 +10,13 @@ from app.models.product_image import ProductImage
 from app.models.product_stock import ProductStock
 from app.models.sale_item import SaleItem
 from app.models.stock_movement import StockMovement
+from app.models.quote_item import QuoteItem
 
 
 def clear_branch_products(branch_id: int, dry_run: bool = False) -> None:
     """
     Apaga todos os produtos (e registos relacionados) de uma filial específica.
-    Remove: StockMovement, OrderItem, SaleItem, ProductStock, ProductImage e Product.
+    Remove: StockMovement, OrderItem, SaleItem, QuoteItem, ProductStock, ProductImage e Product.
     """
     db = SessionLocal()
     try:
@@ -56,6 +57,11 @@ def clear_branch_products(branch_id: int, dry_run: bool = False) -> None:
         del_sale_items = delete(SaleItem).where(SaleItem.product_id.in_(product_ids))
         result_sale_items = db.execute(del_sale_items)
         print(f"Apagados {result_sale_items.rowcount} registos de sale_items.")
+
+        # Apagar quote_items que referenciam estes produtos
+        del_quote_items = delete(QuoteItem).where(QuoteItem.product_id.in_(product_ids))
+        result_quote_items = db.execute(del_quote_items)
+        print(f"Apagados {result_quote_items.rowcount} registos de quote_items.")
 
         # Apagar stock dos produtos
         del_stock = delete(ProductStock).where(ProductStock.product_id.in_(product_ids))
