@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
+import logging
 import os
 import time
 
@@ -9,6 +10,8 @@ from app.routes import auth, branches, companies, customers, dashboard, fiscal_d
 from app.settings import Settings
 
 settings = Settings()
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="ERPCRM API")
 
@@ -54,6 +57,7 @@ app.include_router(products.router, prefix="/products", tags=["products"])
 app.include_router(users.router, prefix="/users", tags=["users"])
 
 os.makedirs(settings.upload_dir, exist_ok=True)
+logger.warning("UPLOAD_DIR=%s", settings.upload_dir)
 app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads")
 
 
