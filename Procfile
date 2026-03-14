@@ -1,1 +1,1 @@
-web: sh -c "python app/scripts/migrate_db.py && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+web: sh -c "export PYTHONPATH=/app && python -m app.scripts.migrate_db && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
