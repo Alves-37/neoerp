@@ -6,7 +6,7 @@ import logging
 import os
 import time
 
-from app.routes import auth, branches, companies, customers, dashboard, fiscal_documents, orders, product_categories, product_stocks, products, quotes, reports, restaurant_tables, sales, stock_adjustments, stock_locations, stock_movements, stock_transfers, supplier_payments, supplier_purchases, suppliers, users
+from app.routes import auth, branches, companies, customers, dashboard, debts, fiscal_documents, orders, product_categories, product_stocks, products, quotes, reports, restaurant_tables, sales, stock_adjustments, stock_locations, stock_movements, stock_transfers, supplier_payments, supplier_purchases, suppliers, users
 from app.settings import Settings
 
 settings = Settings()
@@ -41,6 +41,7 @@ app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 app.include_router(restaurant_tables.router, prefix="/restaurant-tables", tags=["restaurant-tables"])
 app.include_router(orders.router, prefix="/orders", tags=["orders"])
 app.include_router(sales.router, prefix="/sales", tags=["sales"])
+app.include_router(debts.router, prefix="/debts", tags=["debts"])
 app.include_router(fiscal_documents.router, prefix="/fiscal-documents", tags=["fiscal-documents"])
 app.include_router(quotes.router, prefix="/quotes", tags=["quotes"])
 app.include_router(reports.router, prefix="/reports", tags=["reports"])

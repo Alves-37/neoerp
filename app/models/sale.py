@@ -25,6 +25,10 @@ class Sale(Base):
     payment_method: Mapped[str] = mapped_column(String(30), nullable=False, default="cash")
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="paid", index=True)
 
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    voided_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    void_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     sale_channel: Mapped[str] = mapped_column(String(20), nullable=False, default="counter", index=True)
     table_number: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     seat_number: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)

@@ -20,6 +20,15 @@ class SaleCreate(BaseModel):
     items: list[SaleItemCreate]
 
 
+class SaleVoidPayload(BaseModel):
+    reason: str | None = None
+
+
+class SaleEditPayload(BaseModel):
+    include_tax: bool = True
+    items: list[SaleItemCreate]
+
+
 class SaleItemOut(BaseModel):
     id: int
     sale_id: int

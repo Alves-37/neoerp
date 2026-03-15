@@ -81,6 +81,13 @@ def main():
         db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS net_total NUMERIC(12,2) NOT NULL DEFAULT 0"))
         db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS tax_total NUMERIC(12,2) NOT NULL DEFAULT 0"))
 
+        # sales void/return metadata
+        db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS voided_at TIMESTAMPTZ NULL"))
+        db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS voided_by INTEGER NULL REFERENCES users(id)"))
+        db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS void_reason VARCHAR(255) NULL"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sales_voided_at ON sales(voided_at)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sales_voided_by ON sales(voided_by)"))
+
         db.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS branch_id INTEGER"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_branch_id ON orders(branch_id)"))
 
@@ -519,103 +526,6 @@ def main():
                 """
             )
         )
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_product_images_company_id ON product_images(company_id)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_product_images_product_id ON product_images(product_id)"))
-
-        # sales (PDV)
-        db.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS sales (
-                    id SERIAL PRIMARY KEY,
-                    company_id INTEGER NOT NULL REFERENCES companies(id),
-                    business_type VARCHAR(50) NOT NULL DEFAULT 'retail',
-                    total NUMERIC(12,2) NOT NULL DEFAULT 0,
-                    paid NUMERIC(12,2) NOT NULL DEFAULT 0,
-                    change NUMERIC(12,2) NOT NULL DEFAULT 0,
-                    payment_method VARCHAR(30) NOT NULL DEFAULT 'cash',
-                    status VARCHAR(30) NOT NULL DEFAULT 'paid',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                );
-                """
-            )
-        )
-
-        db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS sale_channel VARCHAR(20) NOT NULL DEFAULT 'counter'"))
-        db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS table_number INTEGER"))
-        db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS seat_number INTEGER"))
-
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sales_company_id ON sales(company_id)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sales_business_type ON sales(business_type)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sales_status ON sales(status)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sales_created_at ON sales(created_at)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sales_sale_channel ON sales(sale_channel)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sales_table_number ON sales(table_number)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sales_seat_number ON sales(seat_number)"))
-
-        db.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS sale_items (
-                    id SERIAL PRIMARY KEY,
-                    company_id INTEGER NOT NULL REFERENCES companies(id),
-                    sale_id INTEGER NOT NULL REFERENCES sales(id),
-                    product_id INTEGER NOT NULL REFERENCES products(id),
-                    qty NUMERIC(12,3) NOT NULL DEFAULT 1,
-                    price_at_sale NUMERIC(12,2) NOT NULL DEFAULT 0,
-                    cost_at_sale NUMERIC(12,2) NOT NULL DEFAULT 0,
-                    line_total NUMERIC(12,2) NOT NULL DEFAULT 0,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                );
-                """
-            )
-        )
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sale_items_company_id ON sale_items(company_id)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sale_items_sale_id ON sale_items(sale_id)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sale_items_product_id ON sale_items(product_id)"))
-
-        # restaurant_tables
-        db.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS restaurant_tables (
-                    id SERIAL PRIMARY KEY,
-                    company_id INTEGER NOT NULL REFERENCES companies(id),
-                    number INTEGER NOT NULL,
-                    capacity INTEGER NOT NULL DEFAULT 4,
-                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                );
-                """
-            )
-        )
-        db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_restaurant_tables_company_number ON restaurant_tables(company_id, number)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_restaurant_tables_company_id ON restaurant_tables(company_id)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_restaurant_tables_number ON restaurant_tables(number)"))
-
-        # orders
-        db.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS orders (
-                    id SERIAL PRIMARY KEY,
-                    company_id INTEGER NOT NULL REFERENCES companies(id),
-                    business_type VARCHAR(50) NOT NULL DEFAULT 'restaurant',
-                    status VARCHAR(30) NOT NULL DEFAULT 'open',
-                    table_number INTEGER NOT NULL,
-                    seat_number INTEGER NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                );
-                """
-            )
-        )
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_company_id ON orders(company_id)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_status ON orders(status)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_table_number ON orders(table_number)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_seat_number ON orders(seat_number)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_created_at ON orders(created_at)"))
-        db.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_updated_at ON orders(updated_at)"))
 
         db.execute(
             text(
