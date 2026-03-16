@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -83,3 +83,33 @@ def disable_public_menu(branch_id: int, db: Session = Depends(get_db)):
             "public_menu_subdomain": branch.public_menu_subdomain
         }
     }
+
+
+@router.get("/debug/host-resolution")
+def debug_host_resolution(request: Request, db: Session = Depends(get_db)):
+    """Endpoint para debugar resolução de host"""
+    from app.routes.public_menu import _extract_effective_host, _resolve_branch_from_request
+    
+    try:
+        host = _extract_effective_host(request)
+        branch = _resolve_branch_from_request(db, request)
+        
+        return {
+            "success": True,
+            "headers": dict(request.headers),
+            "extracted_host": host,
+            "branch_found": {
+                "id": branch.id,
+                "name": branch.name,
+                "public_menu_enabled": branch.public_menu_enabled,
+                "public_menu_custom_domain": branch.public_menu_custom_domain,
+                "public_menu_subdomain": branch.public_menu_subdomain
+            }
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "headers": dict(request.headers),
+            "extracted_host": _extract_effective_host(request) if 'request' in locals() else None
+        }
