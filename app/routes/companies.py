@@ -1,8 +1,9 @@
 import os
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from sqlalchemy import select
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
+from pydantic import BaseModel
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
@@ -12,10 +13,15 @@ from app.models.company import Company
 from app.models.user import User
 from app.schemas.companies import CompanyCreate, CompanyOut, CompanyUpdate
 from app.services.default_branches import get_default_branches
+from app.services.company_reset import run_company_reset
 from app.settings import Settings
 
 router = APIRouter()
 settings = Settings()
+
+
+class ResetCompanyRequest(BaseModel):
+    confirm: str
 
 
 @router.get("", response_model=list[CompanyOut])
@@ -72,6 +78,85 @@ def upload_my_company_logo(
     db.commit()
     db.refresh(company)
     return company
+
+
+@router.post("/me/reset")
+def reset_my_company(
+    payload: ResetCompanyRequest,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    role = (getattr(current_user, "role", "") or "").strip().lower()
+    if role not in {"admin", "owner"}:
+        raise HTTPException(status_code=403, detail="Apenas admin pode fazer reset")
+    if (payload.confirm or "").strip().upper() != "RESET":
+        raise HTTPException(status_code=400, detail="Confirmação inválida")
+
+    row = db.execute(
+        select(Company).where(Company.id == current_user.company_id)
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    existing = db.execute(
+        text(
+            """
+            SELECT id, status
+            FROM company_reset_jobs
+            WHERE company_id = :cid
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ),
+        {"cid": int(current_user.company_id)},
+    ).mappings().first()
+    if existing and str(existing.get("status") or "").lower() in {"pending", "running"}:
+        raise HTTPException(status_code=409, detail="Já existe um reset em andamento")
+
+    new_id = db.execute(
+        text(
+            """
+            INSERT INTO company_reset_jobs (company_id, created_by, status, progress, message)
+            VALUES (:cid, :uid, 'pending', 0, 'Aguardando')
+            RETURNING id
+            """
+        ),
+        {"cid": int(current_user.company_id), "uid": int(current_user.id)},
+    ).scalar()
+    db.commit()
+
+    background.add_task(run_company_reset, int(new_id), int(current_user.company_id))
+    return {"job_id": int(new_id), "status": "started"}
+
+
+@router.get("/me/reset/status")
+def reset_status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    role = (getattr(current_user, "role", "") or "").strip().lower()
+    if role not in {"admin", "owner"}:
+        raise HTTPException(status_code=403, detail="Apenas admin")
+
+    row = db.execute(
+        text(
+            """
+            SELECT id, status, progress, message, error
+            FROM company_reset_jobs
+            WHERE company_id = :cid
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ),
+        {"cid": int(current_user.company_id)},
+    ).mappings().first()
+    if not row:
+        return {"status": "idle", "progress": 0}
+    return {
+        "job_id": int(row.get("id")),
+        "status": row.get("status"),
+        "progress": int(row.get("progress") or 0),
+        "message": row.get("message"),
+        "error": row.get("error"),
+    }
 
 
 @router.put("/me", response_model=CompanyOut)

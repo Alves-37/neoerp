@@ -44,6 +44,25 @@ def main():
         # user preference: visible branches in header
         db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS visible_branch_ids JSONB NULL"))
 
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS company_reset_jobs (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL REFERENCES companies(id),
+                    created_by INTEGER NULL REFERENCES users(id),
+                    status VARCHAR(30) NOT NULL DEFAULT 'pending',
+                    progress INTEGER NOT NULL DEFAULT 0,
+                    message VARCHAR(255) NULL,
+                    error TEXT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                """
+            )
+        )
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_company_reset_jobs_company_id ON company_reset_jobs(company_id)"))
+
         # create a default branch for each company if none exists
         db.execute(
             text(
