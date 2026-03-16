@@ -58,6 +58,9 @@ def create_adjustment(
     if not product or product.company_id != current_user.company_id or getattr(product, "branch_id", None) != current_user.branch_id:
         raise HTTPException(status_code=404, detail="Produto não encontrado")
 
+    if bool(getattr(product, "is_service", False)):
+        raise HTTPException(status_code=400, detail="Serviço não possui stock")
+
     location = db.get(StockLocation, payload.location_id)
     if not location or location.company_id != current_user.company_id or not location.is_active:
         raise HTTPException(status_code=400, detail="Local inválido")

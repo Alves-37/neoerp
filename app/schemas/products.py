@@ -15,6 +15,7 @@ class ProductBase(BaseModel):
     tax_rate: float = 0
     min_stock: float = 0
     track_stock: bool = True
+    is_service: bool = False
     is_active: bool = True
     attributes: dict = Field(default_factory=dict)
 
@@ -38,6 +39,7 @@ class ProductUpdate(BaseModel):
     tax_rate: float | None = None
     min_stock: float | None = None
     track_stock: bool | None = None
+    is_service: bool | None = None
     is_active: bool | None = None
     attributes: dict | None = None
     stock_qty: float | None = None

@@ -84,6 +84,9 @@ def create_transfer(
     if not product or product.company_id != current_user.company_id or getattr(product, "branch_id", None) != current_user.branch_id:
         raise HTTPException(status_code=404, detail="Produto não encontrado")
 
+    if bool(getattr(product, "is_service", False)):
+        raise HTTPException(status_code=400, detail="Serviço não possui stock")
+
     from_loc = db.get(StockLocation, payload.from_location_id)
     to_loc = db.get(StockLocation, payload.to_location_id)
 

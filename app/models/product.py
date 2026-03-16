@@ -36,6 +36,7 @@ class Product(Base):
     min_stock: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
 
     track_stock: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_service: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     show_in_menu: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)

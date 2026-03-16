@@ -198,6 +198,11 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db), curren
     if int(getattr(location, "branch_id", 0) or 0) != int(current_user.branch_id):
         raise HTTPException(status_code=400, detail="Local padrão inválido")
 
+    is_service = bool(getattr(payload, "is_service", False))
+    track_stock = bool(payload.track_stock)
+    if is_service:
+        track_stock = False
+
     product = Product(
         company_id=current_user.company_id,
         branch_id=int(current_user.branch_id),
@@ -210,10 +215,11 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db), curren
         barcode=payload.barcode,
         unit=payload.unit,
         price=payload.price,
-        cost=payload.cost,
+        cost=0 if is_service else payload.cost,
         tax_rate=payload.tax_rate,
-        min_stock=float(getattr(payload, "min_stock", 0) or 0),
-        track_stock=payload.track_stock,
+        min_stock=0 if is_service else float(getattr(payload, "min_stock", 0) or 0),
+        track_stock=track_stock,
+        is_service=is_service,
         is_active=payload.is_active,
         show_in_menu=True if (business_type or "").strip().lower() == "restaurant" else False,
         attributes=payload.attributes or {},
@@ -222,7 +228,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db), curren
     db.commit()
     db.refresh(product)
 
-    if getattr(payload, "stock_qty", None) is not None:
+    if (not is_service) and getattr(payload, "stock_qty", None) is not None:
         qty = float(payload.stock_qty or 0)
         if qty < 0:
             raise HTTPException(status_code=400, detail="Estoque inválido")
@@ -270,6 +276,13 @@ def update_product(
 
     data = payload.model_dump(exclude_unset=True)
 
+    is_service_next = bool(data.get("is_service", getattr(product, "is_service", False)))
+    if is_service_next:
+        # enforce service invariants
+        data["track_stock"] = False
+        data["min_stock"] = 0
+        data["cost"] = 0
+
     if "supplier_id" in data and data["supplier_id"] is not None:
         supplier = db.get(Supplier, int(data["supplier_id"]))
         if not supplier or supplier.company_id != current_user.company_id:
@@ -291,7 +304,7 @@ def update_product(
     db.commit()
     db.refresh(product)
 
-    if "stock_qty" in data and data["stock_qty"] is not None:
+    if (not is_service_next) and "stock_qty" in data and data["stock_qty"] is not None:
         qty = float(data["stock_qty"] or 0)
         if qty < 0:
             raise HTTPException(status_code=400, detail="Estoque inválido")

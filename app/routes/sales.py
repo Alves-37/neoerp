@@ -93,6 +93,8 @@ def void_sale(
         product = db.get(Product, int(it.product_id))
         if not product or product.company_id != current_user.company_id or getattr(product, "branch_id", None) != current_user.branch_id:
             raise HTTPException(status_code=400, detail="Produto inválido")
+        if bool(getattr(product, "is_service", False)):
+            continue
         if bool(getattr(product, "track_stock", True)):
             loc_id = int(getattr(product, "default_location_id", 0) or 0)
             if loc_id <= 0:
@@ -230,6 +232,9 @@ def edit_sale(
         ):
             raise HTTPException(status_code=400, detail="Produto inválido para este tipo de negócio")
 
+        if bool(getattr(product, "is_service", False)):
+            continue
+
         if not bool(getattr(product, "track_stock", True)):
             continue
 
@@ -265,7 +270,7 @@ def edit_sale(
 
         qty = float(it.qty or 0)
         price = float(it.price_at_sale or 0)
-        cost = float(it.cost_at_sale or 0)
+        cost = 0.0 if is_service else float(it.cost_at_sale or 0)
 
         line_net = round(price * qty, 2)
         rate = float(getattr(product, "tax_rate", 0) or 0)
@@ -540,6 +545,8 @@ def create_sale(
         ):
             raise HTTPException(status_code=400, detail="Produto inválido para este tipo de negócio")
 
+        is_service = bool(getattr(product, "is_service", False))
+
         qty = float(it.qty or 0)
         if qty <= 0:
             raise HTTPException(status_code=400, detail="Quantidade inválida")
@@ -555,7 +562,7 @@ def create_sale(
         net_total = round(net_total + line_net, 2)
         tax_total = round(tax_total + line_tax, 2)
 
-        track_stock = bool(getattr(product, "track_stock", True))
+        track_stock = (not is_service) and bool(getattr(product, "track_stock", True))
         if track_stock:
             loc_id = int(getattr(product, "default_location_id", 0) or 0)
             if loc_id <= 0:

@@ -98,6 +98,10 @@ def main():
         db.execute(text("ALTER TABLE products ADD COLUMN IF NOT EXISTS branch_id INTEGER"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_products_branch_id ON products(branch_id)"))
 
+        # products.is_service (serviços sem stock/custo)
+        db.execute(text("ALTER TABLE products ADD COLUMN IF NOT EXISTS is_service BOOLEAN NOT NULL DEFAULT FALSE"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_products_is_service ON products(is_service)"))
+
         db.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS branch_id INTEGER"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_customers_branch_id ON customers(branch_id)"))
 
