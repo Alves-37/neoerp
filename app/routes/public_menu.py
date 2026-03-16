@@ -22,7 +22,8 @@ router = APIRouter()
 
 
 def _extract_effective_host(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-host")
+    # Vercel sometimes uses x-vercel-forwarded-host
+    forwarded = request.headers.get("x-vercel-forwarded-host") or request.headers.get("x-forwarded-host")
     host = (forwarded or request.headers.get("host") or "").strip().lower()
     if not host:
         return host
