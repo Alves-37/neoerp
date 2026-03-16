@@ -41,6 +41,9 @@ def main():
         db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS branch_id INTEGER"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_users_branch_id ON users(branch_id)"))
 
+        # user preference: visible branches in header
+        db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS visible_branch_ids JSONB NULL"))
+
         # create a default branch for each company if none exists
         db.execute(
             text(

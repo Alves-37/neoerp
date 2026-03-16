@@ -76,6 +76,10 @@ def switch_my_branch(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    role = (getattr(current_user, "role", "") or "").strip().lower()
+    if role not in {"admin", "owner"}:
+        raise HTTPException(status_code=403, detail="Apenas admin pode trocar de filial")
+
     b = db.get(Branch, payload.branch_id)
     if not b or b.company_id != current_user.company_id:
         raise HTTPException(status_code=404, detail="Filial não encontrada")

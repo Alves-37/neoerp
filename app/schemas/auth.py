@@ -19,12 +19,14 @@ class MeResponse(BaseModel):
     username: str
     email: EmailStr
     role: str
+    visible_branch_ids: list[int] | None = None
 
 
 class UpdateMeRequest(BaseModel):
     name: str | None = None
     username: str | None = None
     email: EmailStr | None = None
+    visible_branch_ids: list[int] | None = None
 
 
 class ChangePasswordRequest(BaseModel):

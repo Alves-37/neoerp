@@ -37,6 +37,7 @@ def me(current_user: User = Depends(get_current_user)):
         username=current_user.username,
         email=current_user.email,
         role=current_user.role,
+        visible_branch_ids=getattr(current_user, "visible_branch_ids", None),
     )
 
 
@@ -48,6 +49,30 @@ def update_me(
     current_user: User = Depends(get_current_user),
 ):
     data = payload.model_dump(exclude_unset=True)
+    if "visible_branch_ids" in data:
+        raw = data.get("visible_branch_ids")
+        if raw is None:
+            data["visible_branch_ids"] = None
+        elif isinstance(raw, list):
+            ids: list[int] = []
+            for x in raw:
+                try:
+                    n = int(x)
+                    if n > 0:
+                        ids.append(n)
+                except Exception:
+                    continue
+            # de-dup preservando ordem
+            seen = set()
+            uniq: list[int] = []
+            for n in ids:
+                if n in seen:
+                    continue
+                seen.add(n)
+                uniq.append(n)
+            # lista vazia => tratar como "mostrar todas" (salvar NULL)
+            data["visible_branch_ids"] = uniq if uniq else None
+
     for k, v in data.items():
         setattr(current_user, k, v)
 
@@ -62,6 +87,7 @@ def update_me(
         username=current_user.username,
         email=current_user.email,
         role=current_user.role,
+        visible_branch_ids=getattr(current_user, "visible_branch_ids", None),
     )
 
 
