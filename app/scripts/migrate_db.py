@@ -19,14 +19,23 @@ def main():
                     name VARCHAR(120) NOT NULL,
                     business_type VARCHAR(50) NOT NULL DEFAULT 'retail',
                     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    public_menu_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                    public_menu_subdomain VARCHAR(120) NULL,
+                    public_menu_custom_domain VARCHAR(255) NULL,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 );
                 """
             )
         )
+        db.execute(text("ALTER TABLE branches ADD COLUMN IF NOT EXISTS public_menu_enabled BOOLEAN NOT NULL DEFAULT FALSE"))
+        db.execute(text("ALTER TABLE branches ADD COLUMN IF NOT EXISTS public_menu_subdomain VARCHAR(120) NULL"))
+        db.execute(text("ALTER TABLE branches ADD COLUMN IF NOT EXISTS public_menu_custom_domain VARCHAR(255) NULL"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_branches_company_id ON branches(company_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_branches_business_type ON branches(business_type)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_branches_is_active ON branches(is_active)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_branches_public_menu_enabled ON branches(public_menu_enabled)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_branches_public_menu_subdomain ON branches(public_menu_subdomain)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_branches_public_menu_custom_domain ON branches(public_menu_custom_domain)"))
 
         # ensure users.branch_id exists
         db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS branch_id INTEGER"))
@@ -321,6 +330,7 @@ def main():
         # products
         db.execute(text("ALTER TABLE products ADD COLUMN IF NOT EXISTS business_type VARCHAR(50) NOT NULL DEFAULT 'retail'"))
         db.execute(text("ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock NUMERIC(12,3) NOT NULL DEFAULT 0"))
+        db.execute(text("ALTER TABLE products ADD COLUMN IF NOT EXISTS show_in_menu BOOLEAN NOT NULL DEFAULT FALSE"))
         db.execute(
             text(
                 """
@@ -340,6 +350,7 @@ def main():
                     min_stock NUMERIC(12,3) NOT NULL DEFAULT 0,
                     track_stock BOOLEAN NOT NULL DEFAULT TRUE,
                     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    show_in_menu BOOLEAN NOT NULL DEFAULT FALSE,
                     attributes JSONB NOT NULL DEFAULT '{}'::jsonb,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -361,6 +372,10 @@ def main():
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_products_barcode ON products(barcode)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_products_supplier_id ON products(supplier_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_products_default_location_id ON products(default_location_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_products_show_in_menu ON products(show_in_menu)"))
+
+        # Auto-publish existing restaurant products (idempotent)
+        db.execute(text("UPDATE products SET show_in_menu = TRUE WHERE business_type = 'restaurant' AND show_in_menu = FALSE"))
 
         # stock locations (warehouse / store)
         db.execute(

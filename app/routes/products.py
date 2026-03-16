@@ -195,6 +195,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db), curren
         min_stock=float(getattr(payload, "min_stock", 0) or 0),
         track_stock=payload.track_stock,
         is_active=payload.is_active,
+        show_in_menu=True if (business_type or "").strip().lower() == "restaurant" else False,
         attributes=payload.attributes or {},
     )
     db.add(product)

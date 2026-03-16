@@ -38,6 +38,8 @@ class Product(Base):
     track_stock: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
+    show_in_menu: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+
     attributes: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
