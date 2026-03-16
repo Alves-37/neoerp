@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from urllib.parse import urlparse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -120,7 +121,14 @@ def update_branch(
         data["public_menu_subdomain"] = sub
 
     if "public_menu_custom_domain" in data and data.get("public_menu_custom_domain"):
-        dom = str(data["public_menu_custom_domain"]).strip().lower()
+        raw = str(data["public_menu_custom_domain"]).strip()
+        parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+        dom = (parsed.netloc or parsed.path or "").strip().lower()
+        if ":" in dom:
+            dom = dom.split(":", 1)[0]
+        dom = dom.strip("/ ")
+        if not dom:
+            raise HTTPException(status_code=400, detail="Domínio inválido")
         exists = db.scalar(select(Branch).where(Branch.public_menu_custom_domain == dom).where(Branch.id != b.id))
         if exists:
             raise HTTPException(status_code=400, detail="Domínio já está em uso")
