@@ -26,6 +26,9 @@ def _extract_effective_host(request: Request) -> str:
     host = (forwarded or request.headers.get("host") or "").strip().lower()
     if not host:
         return host
+    # Some proxies send a comma-separated list. Use the first value.
+    if "," in host:
+        host = host.split(",", 1)[0].strip()
     # remove port if present
     if ":" in host:
         host = host.split(":", 1)[0]

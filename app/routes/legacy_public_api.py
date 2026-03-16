@@ -15,6 +15,8 @@ def _extract_effective_host(request: Request) -> str:
     host = (forwarded or request.headers.get("host") or "").strip().lower()
     if not host:
         return host
+    if "," in host:
+        host = host.split(",", 1)[0].strip()
     if ":" in host:
         host = host.split(":", 1)[0]
     return host
