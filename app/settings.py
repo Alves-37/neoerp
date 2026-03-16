@@ -28,7 +28,28 @@ class Settings(BaseSettings):
         ),
     )
 
-    cors_allow_origins: list[str] = ["http://localhost:5173", "https://erpneo.vercel.app"]
+    cors_allow_origins: list[str] = Field(
+        default=[
+            "http://localhost:5173",
+            "https://erpneo.vercel.app",
+            "https://www.vuchada.com",
+            "https://vuchada.com",
+        ],
+        validation_alias=AliasChoices(
+            "CORS_ALLOW_ORIGINS",
+            "CORS_ALLOWED_ORIGINS",
+        ),
+    )
+
+    @field_validator("cors_allow_origins", mode="before")
+    @classmethod
+    def _normalize_cors_allow_origins(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, str):
+            items = [s.strip() for s in v.split(",")]
+            return [s for s in items if s]
+        return v
 
     @field_validator("database_url")
     @classmethod
