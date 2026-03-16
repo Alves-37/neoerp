@@ -18,6 +18,8 @@ DEFAULT_CATEGORIES: dict[str, list[str]] = {
     "bar": ["Cervejas", "Refrigerantes", "Águas", "Cocktails", "Outros"],
     "butcher": ["Bovina", "Suína", "Aves", "Miúdos", "Outros"],
     "services": ["Consultoria", "Manutenção", "Instalação", "Suporte", "Outros"],
+    "pharmacy": ["Medicamentos", "Genéricos", "Higiene", "Cosméticos", "Outros"],
+    "reprography": ["Cópias", "Impressões", "Encadernação", "Papelaria", "Serviços"],
 }
 
 

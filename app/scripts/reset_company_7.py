@@ -63,6 +63,7 @@ def main():
                 if r.rowcount > 0:
                     print(f"Apagados {r.rowcount} registros de {table}")
             except Exception as e:
+                db.rollback()
                 if "does not exist" in str(e):
                     print(f"Tabela {table} não existe, ignorando.")
                 else:
