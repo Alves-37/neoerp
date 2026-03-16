@@ -50,6 +50,7 @@ class ProductOut(ProductBase):
     supplier_id: int | None = None
     business_type: str
     image_url: str | None = None
+    stock_qty: float | None = None
     created_at: datetime
     updated_at: datetime
 

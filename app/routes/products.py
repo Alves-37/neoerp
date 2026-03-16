@@ -58,6 +58,23 @@ def _get_or_create_stock_row(db: Session, company_id: int, branch_id: int, produ
     return row
 
 
+def _get_stock_qty(db: Session, company_id: int, branch_id: int, product: Product) -> float:
+    try:
+        location_id = int(getattr(product, "default_location_id", 0) or 0)
+        if not location_id:
+            return 0
+        qty = db.scalar(
+            select(func.coalesce(ProductStock.qty_on_hand, 0))
+            .where(ProductStock.company_id == company_id)
+            .where(ProductStock.branch_id == int(branch_id))
+            .where(ProductStock.product_id == int(product.id))
+            .where(ProductStock.location_id == location_id)
+        )
+        return float(qty or 0)
+    except Exception:
+        return 0
+
+
 def _ensure_upload_dir():
     os.makedirs(settings.upload_dir, exist_ok=True)
 
@@ -87,7 +104,19 @@ def list_products(
         .scalar_subquery()
     )
 
-    stmt = select(Product, image_file_subq.label("image_file_path")).where(Product.company_id == current_user.company_id)
+    qty_expr = func.coalesce(ProductStock.qty_on_hand, 0)
+    stmt = (
+        select(Product, image_file_subq.label("image_file_path"), qty_expr.label("stock_qty"))
+        .select_from(Product)
+        .outerjoin(
+            ProductStock,
+            (ProductStock.company_id == current_user.company_id)
+            & (ProductStock.branch_id == Product.branch_id)
+            & (ProductStock.product_id == Product.id)
+            & (ProductStock.location_id == Product.default_location_id),
+        )
+        .where(Product.company_id == current_user.company_id)
+    )
 
     # Default: always scope to the current user's branch for isolation.
     # Admins can explicitly choose another branch via branch_id.
@@ -97,16 +126,6 @@ def list_products(
         raise HTTPException(status_code=400, detail="Filial inválida")
     business_type = branch.business_type or "retail"
     stmt = stmt.where(Product.branch_id == effective_branch_id).where(Product.business_type == business_type)
-
-    qty_expr = func.coalesce(ProductStock.qty_on_hand, 0)
-    if low_stock or in_stock:
-        stmt = stmt.outerjoin(
-            ProductStock,
-            (ProductStock.company_id == current_user.company_id)
-            & (ProductStock.branch_id == effective_branch_id)
-            & (ProductStock.product_id == Product.id)
-            & (ProductStock.location_id == Product.default_location_id),
-        )
 
     if low_stock:
         stmt = (
@@ -127,10 +146,11 @@ def list_products(
 
     rows = db.execute(stmt.order_by(Product.name.asc(), Product.id.asc()).limit(limit).offset(offset)).all()
     out: list[ProductOut] = []
-    for product, image_file_path in rows:
+    for product, image_file_path, stock_qty in rows:
         p = ProductOut.model_validate(product)
         if image_file_path:
             p.image_url = f"/uploads/{image_file_path}"
+        p.stock_qty = float(stock_qty or 0)
         out.append(p)
     return out
 
@@ -225,7 +245,9 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db), curren
         db.add(mv)
         db.commit()
 
-    return product
+    out = ProductOut.model_validate(product)
+    out.stock_qty = _get_stock_qty(db, current_user.company_id, int(current_user.branch_id), product)
+    return out
 
 
 @router.get("/{product_id}", response_model=ProductOut)
@@ -233,7 +255,9 @@ def get_product(product_id: int, db: Session = Depends(get_db), current_user: Us
     product = db.get(Product, product_id)
     if not product or product.company_id != current_user.company_id or int(getattr(product, "branch_id", 0) or 0) != int(current_user.branch_id):
         raise HTTPException(status_code=404, detail="Produto não encontrado")
-    return product
+    out = ProductOut.model_validate(product)
+    out.stock_qty = _get_stock_qty(db, current_user.company_id, int(current_user.branch_id), product)
+    return out
 
 
 @router.put("/{product_id}", response_model=ProductOut)
@@ -290,7 +314,9 @@ def update_product(
         db.add(mv)
         db.commit()
 
-    return product
+    out = ProductOut.model_validate(product)
+    out.stock_qty = _get_stock_qty(db, current_user.company_id, int(current_user.branch_id), product)
+    return out
 
 
 @router.delete("/{product_id}")
