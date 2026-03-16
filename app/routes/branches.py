@@ -112,7 +112,7 @@ def update_branch(
     # Validate uniqueness (global) for subdomain and custom domain.
     if "public_menu_subdomain" in data and data.get("public_menu_subdomain"):
         sub = str(data["public_menu_subdomain"]).strip().lower()
-        if sub in {"www", "menu"}:
+        if sub in {"www"}:
             raise HTTPException(status_code=400, detail="Subdomínio inválido")
         exists = db.scalar(select(Branch).where(Branch.public_menu_subdomain == sub).where(Branch.id != b.id))
         if exists:

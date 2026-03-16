@@ -37,7 +37,7 @@ def _resolve_branch_from_request(db: Session, request: Request) -> Branch:
         raise HTTPException(status_code=404, detail="Menu não encontrado")
 
     subdomain = parts[0]
-    if subdomain in {"www", "menu"}:
+    if subdomain in {"www"}:
         raise HTTPException(status_code=404, detail="Menu não encontrado")
 
     branch = db.scalar(select(Branch).where(Branch.public_menu_subdomain == subdomain))

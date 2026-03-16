@@ -50,7 +50,7 @@ def _resolve_branch_from_request(db: Session, request: Request) -> Branch:
         raise HTTPException(status_code=404, detail="Menu não encontrado")
 
     subdomain = parts[0]
-    if subdomain in {"www", "menu"}:
+    if subdomain in {"www"}:
         raise HTTPException(status_code=404, detail="Menu não encontrado")
 
     branch = db.scalar(select(Branch).where(Branch.public_menu_subdomain == subdomain))
@@ -62,7 +62,7 @@ def _resolve_branch_from_request(db: Session, request: Request) -> Branch:
 
 def _resolve_branch_from_slug(db: Session, slug: str) -> Branch:
     subdomain = (slug or "").strip().lower()
-    if not subdomain or subdomain in {"www", "menu"}:
+    if not subdomain or subdomain in {"www"}:
         raise HTTPException(status_code=404, detail="Menu não encontrado")
     branch = db.scalar(select(Branch).where(Branch.public_menu_subdomain == subdomain))
     if not branch or not branch.public_menu_enabled:
