@@ -138,56 +138,18 @@ def run_company_reset(job_id: int, company_id: int):
             progress = max(1, min(90, progress))
             _set_job(db, job_id, "running", progress, msg)
 
-        # Delete dependent tables first
+        # Delete dependent tables first (skip if table doesn't exist)
         for msg, table in steps:
             bump(msg)
-            if table == "debt_items":
-                db.execute(text("DELETE FROM debt_items WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "debts":
-                db.execute(text("DELETE FROM debts WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "sale_items":
-                db.execute(text("DELETE FROM sale_items WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "sales":
-                db.execute(text("DELETE FROM sales WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "fiscal_document_lines":
-                db.execute(text("DELETE FROM fiscal_document_lines WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "fiscal_documents":
-                db.execute(text("DELETE FROM fiscal_documents WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "quote_items":
-                db.execute(text("DELETE FROM quote_items WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "quotes":
-                db.execute(text("DELETE FROM quotes WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "order_items":
-                db.execute(text("DELETE FROM order_items WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "orders":
-                db.execute(text("DELETE FROM orders WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "restaurant_tables":
-                db.execute(text("DELETE FROM restaurant_tables WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "product_images":
-                db.execute(text("DELETE FROM product_images WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "product_stocks":
-                db.execute(text("DELETE FROM product_stocks WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "stock_movements":
-                db.execute(text("DELETE FROM stock_movements WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "stock_transfers":
-                db.execute(text("DELETE FROM stock_transfers WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "stock_locations":
-                db.execute(text("DELETE FROM stock_locations WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "products":
-                db.execute(text("DELETE FROM products WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "product_categories":
-                db.execute(text("DELETE FROM product_categories WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "customers":
-                db.execute(text("DELETE FROM customers WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "suppliers":
-                db.execute(text("DELETE FROM suppliers WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "supplier_purchases":
-                db.execute(text("DELETE FROM supplier_purchases WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "supplier_payments":
-                db.execute(text("DELETE FROM supplier_payments WHERE company_id = :cid"), {"cid": int(company_id)})
-            elif table == "user_roles":
-                db.execute(text("DELETE FROM user_roles WHERE company_id = :cid"), {"cid": int(company_id)})
-            db.commit()
+            try:
+                db.execute(text(f"DELETE FROM {table} WHERE company_id = :cid"), {"cid": int(company_id)})
+                db.commit()
+            except Exception as e:
+                # Ignore errors for tables that don't exist
+                if "does not exist" in str(e):
+                    continue
+                else:
+                    raise
 
         bump("Apagando usuários não-admin")
         db.execute(
