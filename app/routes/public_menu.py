@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
@@ -9,6 +9,7 @@ from app.models.order_item import OrderItem
 from app.models.product import Product
 from app.models.product_category import ProductCategory
 from app.models.product_image import ProductImage
+from app.models.product_stock import ProductStock
 from app.schemas.public_menu import (
     PublicMenuCategoryOut,
     PublicMenuOut,
@@ -56,6 +57,16 @@ def _resolve_branch_from_request(db: Session, request: Request) -> Branch:
     if not branch or not branch.public_menu_enabled:
         raise HTTPException(status_code=404, detail="Menu não encontrado")
 
+    return branch
+
+
+def _resolve_branch_from_slug(db: Session, slug: str) -> Branch:
+    subdomain = (slug or "").strip().lower()
+    if not subdomain or subdomain in {"www", "menu"}:
+        raise HTTPException(status_code=404, detail="Menu não encontrado")
+    branch = db.scalar(select(Branch).where(Branch.public_menu_subdomain == subdomain))
+    if not branch or not branch.public_menu_enabled:
+        raise HTTPException(status_code=404, detail="Menu não encontrado")
     return branch
 
 
@@ -181,3 +192,77 @@ def create_public_order(payload: PublicOrderCreate, request: Request, db: Sessio
 
     db.commit()
     return PublicOrderCreatedOut(order_id=order.id, status="open")
+
+
+@router.get("/menu/produtos", response_model=list[dict])
+@router.get("/menu/{slug}/produtos", response_model=list[dict], include_in_schema=False)
+def list_public_menu_products(slug: str | None = None, request: Request | None = None, q: str | None = None, db: Session = Depends(get_db)):
+    branch = _resolve_branch_from_slug(db, slug) if slug else _resolve_branch_from_request(db, request)  # type: ignore[arg-type]
+    business_type = (branch.business_type or "").strip().lower()
+    if business_type != "restaurant":
+        raise HTTPException(status_code=404, detail="Menu não encontrado")
+
+    image_file_subq = (
+        select(ProductImage.file_path)
+        .where(ProductImage.company_id == branch.company_id)
+        .where(ProductImage.product_id == Product.id)
+        .order_by(ProductImage.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
+    stock_qty_expr = func.coalesce(ProductStock.qty_on_hand, 0)
+
+    stmt = (
+        select(
+            Product,
+            ProductCategory.name.label("category_name"),
+            image_file_subq.label("image_file_path"),
+            stock_qty_expr.label("stock_qty"),
+        )
+        .outerjoin(
+            ProductCategory,
+            (ProductCategory.company_id == branch.company_id)
+            & (ProductCategory.business_type == "restaurant")
+            & (ProductCategory.id == Product.category_id),
+        )
+        .outerjoin(
+            ProductStock,
+            (ProductStock.company_id == branch.company_id)
+            & (ProductStock.branch_id == branch.id)
+            & (ProductStock.product_id == Product.id)
+            & (ProductStock.location_id == Product.default_location_id),
+        )
+        .where(Product.company_id == branch.company_id)
+        .where(Product.branch_id == branch.id)
+        .where(Product.business_type == "restaurant")
+        .where(Product.is_active.is_(True))
+        .where(Product.show_in_menu.is_(True))
+    )
+
+    if q and q.strip():
+        stmt = stmt.where(Product.name.ilike(f"%{q.strip()}%"))
+
+    rows = db.execute(stmt.order_by(Product.name.asc(), Product.id.asc())).all()
+    out: list[dict] = []
+    for product, category_name, image_file_path, stock_qty in rows:
+        desc_txt = ""
+        try:
+            desc_txt = str((getattr(product, "attributes", None) or {}).get("description") or "")
+        except Exception:
+            desc_txt = ""
+
+        out.append(
+            {
+                "id": product.id,
+                "nome": product.name,
+                "descricao": desc_txt,
+                "preco_venda": float(product.price or 0),
+                "imagem": (f"/uploads/{image_file_path}" if image_file_path else None),
+                "categoria_id": product.category_id,
+                "categoria_nome": category_name,
+                "ativo": bool(product.is_active),
+                "estoque": float(stock_qty or 0),
+            }
+        )
+    return out

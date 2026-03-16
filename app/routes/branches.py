@@ -100,6 +100,31 @@ def update_branch(
         raise HTTPException(status_code=404, detail="Filial não encontrada")
 
     data = payload.model_dump(exclude_unset=True)
+
+    role = (getattr(current_user, "role", "") or "").strip().lower()
+    is_admin = role in {"admin", "owner"}
+
+    public_fields = {"public_menu_enabled", "public_menu_subdomain", "public_menu_custom_domain"}
+    touching_public = any(k in data for k in public_fields)
+    if touching_public and not is_admin:
+        raise HTTPException(status_code=403, detail="Apenas admin pode configurar o menu público")
+
+    # Validate uniqueness (global) for subdomain and custom domain.
+    if "public_menu_subdomain" in data and data.get("public_menu_subdomain"):
+        sub = str(data["public_menu_subdomain"]).strip().lower()
+        if sub in {"www", "menu"}:
+            raise HTTPException(status_code=400, detail="Subdomínio inválido")
+        exists = db.scalar(select(Branch).where(Branch.public_menu_subdomain == sub).where(Branch.id != b.id))
+        if exists:
+            raise HTTPException(status_code=400, detail="Subdomínio já está em uso")
+        data["public_menu_subdomain"] = sub
+
+    if "public_menu_custom_domain" in data and data.get("public_menu_custom_domain"):
+        dom = str(data["public_menu_custom_domain"]).strip().lower()
+        exists = db.scalar(select(Branch).where(Branch.public_menu_custom_domain == dom).where(Branch.id != b.id))
+        if exists:
+            raise HTTPException(status_code=400, detail="Domínio já está em uso")
+        data["public_menu_custom_domain"] = dom
     for k, v in data.items():
         setattr(b, k, v)
 
