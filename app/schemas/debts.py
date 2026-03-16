@@ -27,10 +27,10 @@ class DebtItemOut(BaseModel):
     id: int
     debt_id: int
     product_id: int
-    qty: float = 0
-    price_at_debt: float = 0
-    cost_at_debt: float = 0
-    line_total: float = 0
+    qty: float | None = 0
+    price_at_debt: float | None = 0
+    cost_at_debt: float | None = 0
+    line_total: float | None = 0
 
     class Config:
         from_attributes = True

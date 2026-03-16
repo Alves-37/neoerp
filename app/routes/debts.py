@@ -64,6 +64,20 @@ def _build_debt_out(db: Session, current_user: User, debt: Debt) -> DebtOut:
         .order_by(DebtItem.id.asc())
     ).all()
 
+    out_items: list[DebtItemOut] = []
+    for i in items:
+        out_items.append(
+            DebtItemOut(
+                id=int(getattr(i, "id", 0) or 0),
+                debt_id=int(getattr(i, "debt_id", 0) or 0),
+                product_id=int(getattr(i, "product_id", 0) or 0),
+                qty=float(getattr(i, "qty", 0) or 0),
+                price_at_debt=float(getattr(i, "price_at_debt", 0) or 0),
+                cost_at_debt=float(getattr(i, "cost_at_debt", 0) or 0),
+                line_total=float(getattr(i, "line_total", 0) or 0),
+            )
+        )
+
     return DebtOut(
         id=debt.id,
         company_id=debt.company_id,
@@ -81,7 +95,7 @@ def _build_debt_out(db: Session, current_user: User, debt: Debt) -> DebtOut:
         sale_id=getattr(debt, "sale_id", None),
         created_at=debt.created_at,
         paid_at=getattr(debt, "paid_at", None),
-        items=[DebtItemOut.model_validate(i) for i in items],
+        items=out_items,
     )
 
 
