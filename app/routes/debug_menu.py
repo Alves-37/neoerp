@@ -85,6 +85,100 @@ def disable_public_menu(branch_id: int, db: Session = Depends(get_db)):
     }
 
 
+@router.post("/debug/setup-custom-domain/{branch_id}")
+def setup_custom_domain(branch_id: int, domain: str, db: Session = Depends(get_db)):
+    """Endpoint para configurar domínio customizado para qualquer filial"""
+    branch = db.scalar(select(Branch).where(Branch.id == branch_id))
+    if not branch:
+        raise HTTPException(status_code=404, detail="Filial não encontrada")
+    
+    # Normalizar domínio
+    domain = domain.strip().lower()
+    if domain.startswith('http://') or domain.startswith('https://'):
+        domain = domain.split('://', 1)[1]
+    if '/' in domain:
+        domain = domain.split('/', 1)[0]
+    if ':' in domain:
+        domain = domain.split(':', 1)[0]
+    
+    # Verificar se já está em uso
+    existing = db.scalar(select(Branch).where(Branch.public_menu_custom_domain == domain))
+    if existing and existing.id != branch_id:
+        raise HTTPException(status_code=400, detail=f"Domínio {domain} já está em uso por {existing.name}")
+    
+    # Configurar
+    branch.public_menu_enabled = True
+    branch.public_menu_custom_domain = domain
+    branch.public_menu_subdomain = None
+    
+    db.commit()
+    db.refresh(branch)
+    
+    return {
+        "success": True,
+        "message": f"Menu público configurado para {branch.name} no domínio {domain}",
+        "config": {
+            "id": branch.id,
+            "name": branch.name,
+            "public_menu_enabled": branch.public_menu_enabled,
+            "public_menu_custom_domain": branch.public_menu_custom_domain,
+            "public_menu_subdomain": branch.public_menu_subdomain,
+            "url": f"https://{domain}"
+        },
+        "dns_instructions": {
+            "type": "CNAME",
+            "host": domain,
+            "target": "cname.vercel-dns.com",
+            "note": "Configure este registro CNAME no seu provedor DNS (Hostinger)"
+        }
+    }
+
+
+@router.post("/debug/setup-subdomain/{branch_id}")
+def setup_subdomain(branch_id: int, subdomain: str, db: Session = Depends(get_db)):
+    """Endpoint para configurar subdomínio para qualquer filial"""
+    branch = db.scalar(select(Branch).where(Branch.id == branch_id))
+    if not branch:
+        raise HTTPException(status_code=404, detail="Filial não encontrada")
+    
+    # Normalizar subdomínio
+    subdomain = subdomain.strip().lower()
+    if subdomain in {"www", "mail", "ftp", "admin", "api"}:
+        raise HTTPException(status_code=400, detail=f"Subdomínio {subdomain} não é permitido")
+    
+    # Verificar se já está em uso
+    existing = db.scalar(select(Branch).where(Branch.public_menu_subdomain == subdomain))
+    if existing and existing.id != branch_id:
+        raise HTTPException(status_code=400, detail=f"Subdomínio {subdomain} já está em uso por {existing.name}")
+    
+    # Configurar
+    branch.public_menu_enabled = True
+    branch.public_menu_subdomain = subdomain
+    branch.public_menu_custom_domain = None
+    
+    db.commit()
+    db.refresh(branch)
+    
+    return {
+        "success": True,
+        "message": f"Menu público configurado para {branch.name} com subdomínio {subdomain}",
+        "config": {
+            "id": branch.id,
+            "name": branch.name,
+            "public_menu_enabled": branch.public_menu_enabled,
+            "public_menu_custom_domain": branch.public_menu_custom_domain,
+            "public_menu_subdomain": branch.public_menu_subdomain,
+            "url": f"https://{subdomain}.vuchada.com"
+        },
+        "dns_instructions": {
+            "type": "CNAME",
+            "host": subdomain,
+            "target": "cname.vercel-dns.com",
+            "note": "Configure este registro CNAME no seu provedor DNS (Hostinger) ou use wildcard (*.vuchada.com)"
+        }
+    }
+
+
 @router.get("/debug/host-resolution")
 def debug_host_resolution(request: Request, db: Session = Depends(get_db)):
     """Endpoint para debugar resolução de host"""
