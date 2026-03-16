@@ -21,10 +21,8 @@ from app.schemas.public_menu import (
 router = APIRouter()
 
 
-def _extract_effective_host(request: Request) -> str:
-    # Vercel sometimes uses x-vercel-forwarded-host
-    forwarded = request.headers.get("x-vercel-forwarded-host") or request.headers.get("x-forwarded-host")
-    host = (forwarded or request.headers.get("host") or "").strip().lower()
+def _normalize_host_value(value: str) -> str:
+    host = (value or "").strip().lower()
     if not host:
         return host
     # Some proxies send a comma-separated list. Use the first value.
@@ -36,8 +34,15 @@ def _extract_effective_host(request: Request) -> str:
     return host
 
 
-def _resolve_branch_from_request(db: Session, request: Request) -> Branch:
-    host = _extract_effective_host(request)
+def _extract_effective_host(request: Request) -> str:
+    # Vercel sometimes uses x-vercel-forwarded-host
+    forwarded = request.headers.get("x-vercel-forwarded-host") or request.headers.get("x-forwarded-host")
+    raw = forwarded or request.headers.get("host") or ""
+    return _normalize_host_value(raw)
+
+
+def _resolve_branch_from_host(db: Session, host: str) -> Branch:
+    host = _normalize_host_value(host)
     if not host:
         raise HTTPException(status_code=400, detail="Host inválido")
 
@@ -64,6 +69,16 @@ def _resolve_branch_from_request(db: Session, request: Request) -> Branch:
     return branch
 
 
+def _resolve_branch_from_request(db: Session, request: Request) -> Branch:
+    return _resolve_branch_from_host(db, _extract_effective_host(request))
+
+
+def _resolve_branch_from_request_or_host(db: Session, request: Request, host: str | None) -> Branch:
+    if host:
+        return _resolve_branch_from_host(db, host)
+    return _resolve_branch_from_request(db, request)
+
+
 def _resolve_branch_from_slug(db: Session, slug: str) -> Branch:
     subdomain = (slug or "").strip().lower()
     if not subdomain or subdomain in {"www"}:
@@ -75,8 +90,8 @@ def _resolve_branch_from_slug(db: Session, slug: str) -> Branch:
 
 
 @router.get("/menu", response_model=PublicMenuOut)
-def get_public_menu(request: Request, db: Session = Depends(get_db)):
-    branch = _resolve_branch_from_request(db, request)
+def get_public_menu(request: Request, host: str | None = None, domain: str | None = None, db: Session = Depends(get_db)):
+    branch = _resolve_branch_from_request_or_host(db, request, domain or host)
     business_type = (branch.business_type or "").strip().lower()
     if business_type != "restaurant":
         raise HTTPException(status_code=404, detail="Menu não encontrado")
@@ -198,9 +213,7 @@ def create_public_order(payload: PublicOrderCreate, request: Request, db: Sessio
     return PublicOrderCreatedOut(order_id=order.id, status="open")
 
 
-@router.get("/menu/produtos", response_model=list[dict])
-def list_public_menu_products(request: Request, q: str | None = None, db: Session = Depends(get_db)):
-    branch = _resolve_branch_from_request(db, request)
+def _list_public_products_for_branch(db: Session, branch: Branch, q: str | None = None, somente_disponiveis: bool = True):
     business_type = (branch.business_type or "").strip().lower()
     if business_type != "restaurant":
         raise HTTPException(status_code=404, detail="Menu não encontrado")
@@ -246,6 +259,9 @@ def list_public_menu_products(request: Request, q: str | None = None, db: Sessio
     if q and q.strip():
         stmt = stmt.where(Product.name.ilike(f"%{q.strip()}%"))
 
+    if somente_disponiveis:
+        stmt = stmt.where(stock_qty_expr > 0)
+
     rows = db.execute(stmt.order_by(Product.name.asc(), Product.id.asc())).all()
     out: list[dict] = []
     for product, category_name, image_file_path, stock_qty in rows:
@@ -269,6 +285,19 @@ def list_public_menu_products(request: Request, q: str | None = None, db: Sessio
             }
         )
     return out
+
+
+@router.get("/menu/produtos", response_model=list[dict])
+def list_public_products(
+    request: Request,
+    q: str | None = None,
+    somente_disponiveis: bool = True,
+    host: str | None = None,
+    domain: str | None = None,
+    db: Session = Depends(get_db),
+):
+    branch = _resolve_branch_from_request_or_host(db, request, domain or host)
+    return _list_public_products_for_branch(db, branch, q=q, somente_disponiveis=somente_disponiveis)
 
 
 @router.get("/menu/{slug}/produtos", response_model=list[dict], include_in_schema=False)

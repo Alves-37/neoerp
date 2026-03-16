@@ -10,9 +10,8 @@ from app.models.branch import Branch
 router = APIRouter()
 
 
-def _extract_effective_host(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-host")
-    host = (forwarded or request.headers.get("host") or "").strip().lower()
+def _normalize_host_value(value: str) -> str:
+    host = (value or "").strip().lower()
     if not host:
         return host
     if "," in host:
@@ -22,8 +21,14 @@ def _extract_effective_host(request: Request) -> str:
     return host
 
 
-def _resolve_branch_from_request(db: Session, request: Request) -> Branch:
-    host = _extract_effective_host(request)
+def _extract_effective_host(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-host")
+    raw = forwarded or request.headers.get("host") or ""
+    return _normalize_host_value(raw)
+
+
+def _resolve_branch_from_host(db: Session, host: str) -> Branch:
+    host = _normalize_host_value(host)
     if not host:
         raise HTTPException(status_code=400, detail="Host inválido")
 
@@ -49,14 +54,24 @@ def _resolve_branch_from_request(db: Session, request: Request) -> Branch:
     return branch
 
 
+def _resolve_branch_from_request(db: Session, request: Request) -> Branch:
+    return _resolve_branch_from_host(db, _extract_effective_host(request))
+
+
+def _resolve_branch_from_request_or_host(db: Session, request: Request, host: str | None) -> Branch:
+    if host:
+        return _resolve_branch_from_host(db, host)
+    return _resolve_branch_from_request(db, request)
+
+
 @router.get("/app")
-def get_app(request: Request, db: Session = Depends(get_db)):
+def get_app(request: Request, host: str | None = None, domain: str | None = None, db: Session = Depends(get_db)):
     """Endpoint de compatibilidade para o menu público legado.
 
     Retorna informações mínimas do estabelecimento para o front-end estático.
     """
 
-    branch = _resolve_branch_from_request(db, request)
+    branch = _resolve_branch_from_request_or_host(db, request, domain or host)
     return {
         "id": branch.id,
         "name": branch.name,
@@ -66,14 +81,14 @@ def get_app(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/restaurant-status")
-def get_restaurant_status(request: Request, db: Session = Depends(get_db)):
+def get_restaurant_status(request: Request, host: str | None = None, domain: str | None = None, db: Session = Depends(get_db)):
     """Endpoint de compatibilidade esperado pelo index.html legado.
 
     Como ainda não temos um modelo de horários/disponibilidade, por enquanto:
     - Se menu público estiver habilitado na filial restaurante => aberto
     """
 
-    branch = _resolve_branch_from_request(db, request)
+    branch = _resolve_branch_from_request_or_host(db, request, domain or host)
     bt = (branch.business_type or "").strip().lower()
     if bt != "restaurant":
         return {
