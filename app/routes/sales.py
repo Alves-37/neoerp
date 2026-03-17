@@ -410,6 +410,7 @@ def list_sales(
     limit: int = 50,
     offset: int = 0,
     branch_id: int | None = None,
+    establishment_id: int | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -422,6 +423,15 @@ def list_sales(
     # Admins can explicitly choose another branch via branch_id.
     effective_branch_id = int(branch_id) if (is_admin and branch_id is not None) else int(current_user.branch_id)
     stmt = stmt.where(Sale.branch_id == effective_branch_id)
+
+    # Scope by establishment (ponto)
+    if is_admin:
+        if establishment_id is not None:
+            stmt = stmt.where(Sale.establishment_id == int(establishment_id))
+    else:
+        if not getattr(current_user, "establishment_id", None):
+            raise HTTPException(status_code=400, detail="Ponto inválido")
+        stmt = stmt.where(Sale.establishment_id == int(current_user.establishment_id))
 
     branch = db.get(Branch, effective_branch_id)
     if branch and branch.company_id == current_user.company_id:
