@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
 from app.deps import get_current_user
+from app.models.establishment import Establishment
 from app.models.user import User
 from app.schemas.users import UserCreate, UserOut, UserUpdate
 from app.services.auth_service import hash_password
@@ -57,9 +58,18 @@ def create_user(
     if target_branch_id is None:
         raise HTTPException(status_code=400, detail='Não foi possível determinar a filial do usuário. Informe branch_id ou defina a filial do usuário atual.')
 
+    establishment_id = payload.establishment_id
+    if establishment_id is not None:
+        est = db.get(Establishment, int(establishment_id))
+        if (not est) or (est.company_id != current_user.company_id):
+            raise HTTPException(status_code=404, detail='Ponto não encontrado.')
+        if int(est.branch_id) != int(target_branch_id):
+            raise HTTPException(status_code=400, detail='Ponto não pertence à filial selecionada.')
+
     user = User(
         company_id=current_user.company_id,
         branch_id=target_branch_id,
+        establishment_id=int(establishment_id) if establishment_id is not None else None,
         name=payload.name,
         username=payload.username,
         email=payload.email,
@@ -119,6 +129,14 @@ def update_user(
 
     if "branch_id" in data and data.get("branch_id") is None:
         raise HTTPException(status_code=400, detail='branch_id não pode ser nulo.')
+
+    if "establishment_id" in data and data.get("establishment_id") is not None:
+        next_branch_id = int(data.get("branch_id")) if data.get("branch_id") is not None else int(user.branch_id)
+        est = db.get(Establishment, int(data.get("establishment_id")))
+        if (not est) or (est.company_id != current_user.company_id):
+            raise HTTPException(status_code=404, detail='Ponto não encontrado.')
+        if int(est.branch_id) != int(next_branch_id):
+            raise HTTPException(status_code=400, detail='Ponto não pertence à filial do usuário.')
 
     if "password" in data:
         password = data.pop("password")
