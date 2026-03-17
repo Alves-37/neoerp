@@ -19,3 +19,17 @@ class DashboardSummaryOut(BaseModel):
 class SalesSeriesPointOut(BaseModel):
     day: date
     total: float
+
+
+class ExpiryAlertItemOut(BaseModel):
+    product_id: int
+    name: str
+    validade: str
+    days_to_expire: int
+
+
+class ExpiryAlertsOut(BaseModel):
+    expired_count: int
+    expiring_soon_count: int
+    days_window: int
+    items: list[ExpiryAlertItemOut]
