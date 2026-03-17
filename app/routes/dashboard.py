@@ -32,6 +32,7 @@ def _get_app_tz():
 
 @router.get("/summary", response_model=DashboardSummaryOut)
 def get_dashboard_summary(
+    establishment_id: int | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -45,11 +46,22 @@ def get_dashboard_summary(
         branch_id = int(current_user.branch_id)
 
     is_cashier = (current_user.role or "").strip().lower() == "cashier"
+    role = (getattr(current_user, "role", "") or "").strip().lower()
+    is_admin = role in {"admin", "owner"}
+
+    effective_establishment_id: int | None = None
+    if is_admin:
+        if establishment_id is not None:
+            effective_establishment_id = int(establishment_id)
+    else:
+        if getattr(current_user, "establishment_id", None) is not None:
+            effective_establishment_id = int(current_user.establishment_id)
 
     products_total = db.scalar(
         select(func.count(Product.id))
         .where(Product.company_id == current_user.company_id)
         .where(Product.branch_id == branch_id)
+        .where(Product.establishment_id == effective_establishment_id)
         .where(Product.business_type == business_type)
     )
 
@@ -70,6 +82,7 @@ def get_dashboard_summary(
         select(func.coalesce(func.sum(Sale.total), 0))
         .where(Sale.company_id == current_user.company_id)
         .where(Sale.branch_id == branch_id)
+        .where(Sale.establishment_id == effective_establishment_id)
         .where(func.lower(Sale.business_type) == business_type)
         .where(func.lower(Sale.status) == "paid")
     )
@@ -91,6 +104,7 @@ def get_dashboard_summary(
         .where(SaleItem.branch_id == branch_id)
         .where(Sale.company_id == current_user.company_id)
         .where(Sale.branch_id == branch_id)
+        .where(Sale.establishment_id == effective_establishment_id)
         .where(func.lower(Sale.business_type) == business_type)
         .where(func.lower(Sale.status) == "paid")
     )
@@ -109,6 +123,7 @@ def get_dashboard_summary(
         select(Product)
         .where(Product.company_id == current_user.company_id)
         .where(Product.branch_id == branch_id)
+        .where(Product.establishment_id == effective_establishment_id)
         .where(Product.business_type == business_type)
         .where(Product.track_stock.is_(True))
         .where(Product.is_active.is_(True))
@@ -126,6 +141,7 @@ def get_dashboard_summary(
         )
         .where(Product.company_id == current_user.company_id)
         .where(Product.branch_id == branch_id)
+        .where(Product.establishment_id == effective_establishment_id)
         .where(Product.business_type == business_type)
         .where(Product.track_stock.is_(True))
         .where(Product.is_active.is_(True))
@@ -152,6 +168,7 @@ def get_dashboard_summary(
         )
         .where(Product.company_id == current_user.company_id)
         .where(Product.branch_id == branch_id)
+        .where(Product.establishment_id == effective_establishment_id)
         .where(Product.business_type == business_type)
         .where(Product.track_stock.is_(True))
         .where(Product.is_active.is_(True))
@@ -175,6 +192,7 @@ def get_dashboard_summary(
         )
         .where(Product.company_id == current_user.company_id)
         .where(Product.branch_id == branch_id)
+        .where(Product.establishment_id == effective_establishment_id)
         .where(Product.business_type == business_type)
         .where(Product.track_stock.is_(True))
         .where(Product.is_active.is_(True))
@@ -196,6 +214,7 @@ def get_dashboard_summary(
 @router.get("/sales-series", response_model=list[SalesSeriesPointOut])
 def get_sales_series(
     days: int = 30,
+    establishment_id: int | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -225,12 +244,24 @@ def get_sales_series(
 
     is_cashier = (current_user.role or "").strip().lower() == "cashier"
 
+    role = (getattr(current_user, "role", "") or "").strip().lower()
+    is_admin = role in {"admin", "owner"}
+
+    effective_establishment_id: int | None = None
+    if is_admin:
+        if establishment_id is not None:
+            effective_establishment_id = int(establishment_id)
+    else:
+        if getattr(current_user, "establishment_id", None) is not None:
+            effective_establishment_id = int(current_user.establishment_id)
+
     created_day = func.date(func.timezone(_APP_TZ, Sale.created_at))
 
     series_stmt = (
         select(created_day.label("day"), func.coalesce(func.sum(Sale.total), 0).label("total"))
         .where(Sale.company_id == current_user.company_id)
         .where(Sale.branch_id == branch_id)
+        .where(Sale.establishment_id == effective_establishment_id)
         .where(func.lower(Sale.business_type) == business_type)
         .where(func.lower(Sale.status) == "paid")
         .where(Sale.created_at >= start_utc)
