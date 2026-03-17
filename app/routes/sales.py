@@ -66,6 +66,9 @@ def void_sale(
     if not branch or branch.company_id != current_user.company_id:
         raise HTTPException(status_code=400, detail="Filial inválida")
     business_type = (branch.business_type or "retail").strip().lower()
+
+    if not getattr(current_user, "establishment_id", None):
+        raise HTTPException(status_code=400, detail="Ponto inválido")
     if business_type == "restaurant":
         raise HTTPException(status_code=403, detail="Funcionalidade indisponível para restaurante")
 
@@ -370,6 +373,7 @@ def edit_sale(
         id=sale.id,
         company_id=sale.company_id,
         branch_id=getattr(sale, "branch_id", 0) or 0,
+        establishment_id=getattr(sale, "establishment_id", None),
         business_type=sale.business_type,
         cashier_id=getattr(sale, "cashier_id", None),
         cash_session_id=getattr(sale, "cash_session_id", None),
@@ -467,6 +471,7 @@ def list_sales(
                 id=s.id,
                 company_id=s.company_id,
                 branch_id=getattr(s, "branch_id", 0) or 0,
+                establishment_id=getattr(s, "establishment_id", None),
                 business_type=s.business_type,
                 cashier_id=getattr(s, "cashier_id", None),
                 cash_session_id=getattr(s, "cash_session_id", None),
@@ -520,6 +525,7 @@ def create_sale(
         select(CashSession)
         .where(CashSession.company_id == current_user.company_id)
         .where(CashSession.branch_id == int(current_user.branch_id))
+        .where(CashSession.establishment_id == int(current_user.establishment_id))
         .where(CashSession.opened_by == current_user.id)
         .where(CashSession.status == "open")
         .order_by(CashSession.id.desc())
@@ -556,6 +562,7 @@ def create_sale(
             not product
             or product.company_id != current_user.company_id
             or getattr(product, "branch_id", None) != current_user.branch_id
+            or getattr(product, "establishment_id", None) != getattr(current_user, "establishment_id", None)
             or product.business_type != business_type
         ):
             raise HTTPException(status_code=400, detail="Produto inválido para este tipo de negócio")
@@ -613,6 +620,7 @@ def create_sale(
     sale = Sale(
         company_id=current_user.company_id,
         branch_id=int(current_user.branch_id),
+        establishment_id=int(current_user.establishment_id),
         cashier_id=current_user.id,
         cash_session_id=int(cash_session.id),
         business_type=business_type,
@@ -694,6 +702,7 @@ def create_sale(
         id=sale.id,
         company_id=sale.company_id,
         branch_id=getattr(sale, "branch_id", 0) or 0,
+        establishment_id=getattr(sale, "establishment_id", None),
         business_type=sale.business_type,
         cashier_id=getattr(sale, "cashier_id", None),
         cash_session_id=getattr(sale, "cash_session_id", None),

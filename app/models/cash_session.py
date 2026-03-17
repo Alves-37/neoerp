@@ -12,6 +12,7 @@ class CashSession(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     company_id: Mapped[int] = mapped_column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
     branch_id: Mapped[int] = mapped_column(Integer, ForeignKey("branches.id"), nullable=False, index=True)
+    establishment_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("establishments.id"), nullable=True, index=True)
 
     opened_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)

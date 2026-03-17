@@ -16,6 +16,7 @@ class CashSessionOut(BaseModel):
     id: int
     company_id: int
     branch_id: int
+    establishment_id: int | None = None
     opened_by: int
     opened_at: datetime
     opening_balance: float
@@ -43,6 +44,7 @@ class CashSessionSummaryOut(BaseModel):
     cash_session_id: int
     company_id: int
     branch_id: int
+    establishment_id: int | None = None
     opened_by: int
     opened_at: datetime
     status: str

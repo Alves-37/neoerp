@@ -47,6 +47,7 @@ class SaleOut(BaseModel):
     id: int
     company_id: int
     branch_id: int
+    establishment_id: int | None = None
     business_type: str
     cashier_id: int | None = None
     cash_session_id: int | None = None

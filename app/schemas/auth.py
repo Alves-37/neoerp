@@ -15,6 +15,7 @@ class MeResponse(BaseModel):
     id: int
     company_id: int
     branch_id: int | None = None
+    establishment_id: int | None = None
     name: str
     username: str
     email: EmailStr

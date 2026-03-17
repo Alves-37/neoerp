@@ -21,6 +21,7 @@ class ProductBase(BaseModel):
 
 
 class ProductCreate(ProductBase):
+    establishment_id: int | None = None
     category_id: int | None = None
     category_name: str | None = None
     stock_qty: float | None = None
@@ -28,6 +29,7 @@ class ProductCreate(ProductBase):
 
 class ProductUpdate(BaseModel):
     category_id: int | None = None
+    establishment_id: int | None = None
     name: str | None = None
     sku: str | None = None
     barcode: str | None = None
@@ -48,6 +50,7 @@ class ProductUpdate(BaseModel):
 class ProductOut(ProductBase):
     id: int
     company_id: int
+    establishment_id: int | None = None
     category_id: int | None
     supplier_id: int | None = None
     business_type: str

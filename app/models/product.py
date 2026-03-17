@@ -13,6 +13,7 @@ class Product(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     company_id: Mapped[int] = mapped_column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
     branch_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    establishment_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("establishments.id"), nullable=True, index=True)
 
     category_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 

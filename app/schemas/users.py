@@ -8,6 +8,7 @@ class UserBase(BaseModel):
     email: str
     role: str = 'admin'
     branch_id: Optional[int] = None
+    establishment_id: Optional[int] = None
     is_active: bool = True
 
 class UserCreate(UserBase):
@@ -20,6 +21,7 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
     role: Optional[str] = None
     branch_id: Optional[int] = None
+    establishment_id: Optional[int] = None
     is_active: Optional[bool] = None
 
 class UserOut(UserBase):

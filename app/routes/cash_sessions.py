@@ -23,10 +23,14 @@ def _get_open_session(db: Session, current_user: User) -> CashSession | None:
     if not getattr(current_user, "branch_id", None):
         return None
 
+    if not getattr(current_user, "establishment_id", None):
+        return None
+
     return db.scalar(
         select(CashSession)
         .where(CashSession.company_id == current_user.company_id)
         .where(CashSession.branch_id == int(current_user.branch_id))
+        .where(CashSession.establishment_id == int(current_user.establishment_id))
         .where(CashSession.opened_by == current_user.id)
         .where(CashSession.status == "open")
         .order_by(CashSession.id.desc())
@@ -49,6 +53,9 @@ def open_cash_session(
     if not getattr(current_user, "branch_id", None):
         raise HTTPException(status_code=400, detail="Filial inválida")
 
+    if not getattr(current_user, "establishment_id", None):
+        raise HTTPException(status_code=400, detail="Ponto inválido")
+
     existing = _get_open_session(db, current_user)
     if existing:
         raise HTTPException(status_code=409, detail="Já existe um caixa aberto")
@@ -60,6 +67,7 @@ def open_cash_session(
     row = CashSession(
         company_id=current_user.company_id,
         branch_id=int(current_user.branch_id),
+        establishment_id=int(current_user.establishment_id),
         opened_by=current_user.id,
         opened_at=datetime.utcnow(),
         opening_balance=opening,
@@ -86,6 +94,11 @@ def cash_session_summary(
     if not row or row.company_id != current_user.company_id or row.branch_id != int(current_user.branch_id):
         raise HTTPException(status_code=404, detail="Caixa não encontrado")
 
+    if not getattr(current_user, "establishment_id", None):
+        raise HTTPException(status_code=400, detail="Ponto inválido")
+    if int(getattr(row, "establishment_id", 0) or 0) != int(current_user.establishment_id):
+        raise HTTPException(status_code=404, detail="Caixa não encontrado")
+
     if (not _is_admin(current_user)) and row.opened_by != current_user.id:
         raise HTTPException(status_code=403, detail="Sem permissão para ver este caixa")
 
@@ -101,6 +114,7 @@ def cash_session_summary(
         .select_from(Sale)
         .where(Sale.company_id == current_user.company_id)
         .where(Sale.branch_id == int(current_user.branch_id))
+        .where(Sale.establishment_id == int(current_user.establishment_id))
         .where(Sale.cash_session_id == row.id)
         .where(Sale.status.in_(paid_statuses))
     ).one()
@@ -116,6 +130,7 @@ def cash_session_summary(
         .select_from(Sale)
         .where(Sale.company_id == current_user.company_id)
         .where(Sale.branch_id == int(current_user.branch_id))
+        .where(Sale.establishment_id == int(current_user.establishment_id))
         .where(Sale.cash_session_id == row.id)
         .where(Sale.status.in_(paid_statuses))
         .group_by(Sale.payment_method)
@@ -148,6 +163,7 @@ def cash_session_summary(
         cash_session_id=row.id,
         company_id=row.company_id,
         branch_id=row.branch_id,
+        establishment_id=getattr(row, "establishment_id", None),
         opened_by=row.opened_by,
         opened_at=row.opened_at,
         status=row.status,
@@ -174,6 +190,11 @@ def close_cash_session(
     if not row or row.company_id != current_user.company_id or row.branch_id != int(current_user.branch_id):
         raise HTTPException(status_code=404, detail="Caixa não encontrado")
 
+    if not getattr(current_user, "establishment_id", None):
+        raise HTTPException(status_code=400, detail="Ponto inválido")
+    if int(getattr(row, "establishment_id", 0) or 0) != int(current_user.establishment_id):
+        raise HTTPException(status_code=404, detail="Caixa não encontrado")
+
     if row.status != "open":
         raise HTTPException(status_code=409, detail="Caixa já está fechado")
 
@@ -190,6 +211,7 @@ def close_cash_session(
         select(func.coalesce(func.sum(Sale.total), 0))
         .where(Sale.company_id == current_user.company_id)
         .where(Sale.branch_id == int(current_user.branch_id))
+        .where(Sale.establishment_id == int(current_user.establishment_id))
         .where(Sale.cashier_id == row.opened_by)
         .where(Sale.cash_session_id == row.id)
         .where(Sale.payment_method == "cash")

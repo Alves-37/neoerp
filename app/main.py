@@ -6,7 +6,7 @@ import logging
 import os
 import time
 
-from app.routes import auth, branches, cash_sessions, companies, customers, dashboard, debts, debug_menu, fiscal_documents, legacy_public_api, orders, product_categories, product_stocks, products, public_menu, quotes, reports, restaurant_tables, sales, stock_adjustments, stock_locations, stock_movements, stock_transfers, supplier_payments, supplier_purchases, suppliers, users
+from app.routes import auth, branches, cash_sessions, companies, customers, dashboard, debts, debug_menu, establishments, fiscal_documents, legacy_public_api, orders, product_categories, product_stocks, products, public_menu, quotes, reports, restaurant_tables, sales, stock_adjustments, stock_locations, stock_movements, stock_transfers, supplier_payments, supplier_purchases, suppliers, users
 from app.settings import Settings
 
 settings = Settings()
@@ -35,6 +35,7 @@ async def add_process_time_header(request, call_next):
 
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(branches.router, prefix="/branches", tags=["branches"])
+app.include_router(establishments.router, prefix="/establishments", tags=["establishments"])
 app.include_router(companies.router, prefix="/companies", tags=["companies"])
 app.include_router(customers.router, prefix="/customers", tags=["customers"])
 app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])

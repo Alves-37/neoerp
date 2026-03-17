@@ -41,6 +41,117 @@ def main():
         db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS branch_id INTEGER"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_users_branch_id ON users(branch_id)"))
 
+        # establishments (pontos dentro da filial)
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS establishments (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL REFERENCES companies(id),
+                    branch_id INTEGER NOT NULL REFERENCES branches(id),
+                    name VARCHAR(120) NOT NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                """
+            )
+        )
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_establishments_company_id ON establishments(company_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_establishments_branch_id ON establishments(branch_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_establishments_is_active ON establishments(is_active)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_establishments_name ON establishments(name)"))
+
+        # ensure establishment_id columns exist
+        db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS establishment_id INTEGER NULL REFERENCES establishments(id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_users_establishment_id ON users(establishment_id)"))
+
+        db.execute(text("ALTER TABLE products ADD COLUMN IF NOT EXISTS establishment_id INTEGER NULL REFERENCES establishments(id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_products_establishment_id ON products(establishment_id)"))
+
+        db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS establishment_id INTEGER NULL REFERENCES establishments(id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sales_establishment_id ON sales(establishment_id)"))
+
+        # create a default establishment per branch if none exists
+        db.execute(
+            text(
+                """
+                INSERT INTO establishments (company_id, branch_id, name, is_active)
+                SELECT b.company_id, b.id, 'Ponto Principal', TRUE
+                FROM branches b
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM establishments e WHERE e.branch_id = b.id
+                );
+                """
+            )
+        )
+
+        # backfill users.establishment_id using the branch default establishment
+        db.execute(
+            text(
+                """
+                UPDATE users u
+                SET establishment_id = e.id
+                FROM (
+                    SELECT branch_id, MIN(id) AS id
+                    FROM establishments
+                    GROUP BY branch_id
+                ) e
+                WHERE u.establishment_id IS NULL
+                  AND u.branch_id IS NOT NULL
+                  AND u.branch_id = e.branch_id;
+                """
+            )
+        )
+
+        # backfill products.establishment_id using the branch default establishment
+        db.execute(
+            text(
+                """
+                UPDATE products p
+                SET establishment_id = e.id
+                FROM (
+                    SELECT branch_id, MIN(id) AS id
+                    FROM establishments
+                    GROUP BY branch_id
+                ) e
+                WHERE p.establishment_id IS NULL
+                  AND p.branch_id IS NOT NULL
+                  AND p.branch_id = e.branch_id;
+                """
+            )
+        )
+
+        # backfill sales.establishment_id using the cashier's current establishment_id (fallback to branch default)
+        db.execute(
+            text(
+                """
+                UPDATE sales s
+                SET establishment_id = u.establishment_id
+                FROM users u
+                WHERE s.establishment_id IS NULL
+                  AND s.cashier_id IS NOT NULL
+                  AND u.id = s.cashier_id
+                  AND u.establishment_id IS NOT NULL;
+                """
+            )
+        )
+        db.execute(
+            text(
+                """
+                UPDATE sales s
+                SET establishment_id = e.id
+                FROM (
+                    SELECT branch_id, MIN(id) AS id
+                    FROM establishments
+                    GROUP BY branch_id
+                ) e
+                WHERE s.establishment_id IS NULL
+                  AND s.branch_id IS NOT NULL
+                  AND s.branch_id = e.branch_id;
+                """
+            )
+        )
+
         # cash sessions (abertura/fecho de caixa)
         db.execute(
             text(
@@ -49,6 +160,7 @@ def main():
                     id SERIAL PRIMARY KEY,
                     company_id INTEGER NOT NULL REFERENCES companies(id),
                     branch_id INTEGER NOT NULL REFERENCES branches(id),
+                    establishment_id INTEGER NULL REFERENCES establishments(id),
                     opened_by INTEGER NOT NULL REFERENCES users(id),
                     opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     opening_balance NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -65,12 +177,45 @@ def main():
                 """
             )
         )
+        db.execute(text("ALTER TABLE cash_sessions ADD COLUMN IF NOT EXISTS establishment_id INTEGER NULL REFERENCES establishments(id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_establishment_id ON cash_sessions(establishment_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_company_id ON cash_sessions(company_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_branch_id ON cash_sessions(branch_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_opened_by ON cash_sessions(opened_by)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_status ON cash_sessions(status)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_opened_at ON cash_sessions(opened_at)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_closed_at ON cash_sessions(closed_at)"))
+
+        # backfill cash_sessions.establishment_id using the opened_by user's establishment_id (fallback to branch default)
+        db.execute(
+            text(
+                """
+                UPDATE cash_sessions cs
+                SET establishment_id = u.establishment_id
+                FROM users u
+                WHERE cs.establishment_id IS NULL
+                  AND cs.opened_by IS NOT NULL
+                  AND u.id = cs.opened_by
+                  AND u.establishment_id IS NOT NULL;
+                """
+            )
+        )
+        db.execute(
+            text(
+                """
+                UPDATE cash_sessions cs
+                SET establishment_id = e.id
+                FROM (
+                    SELECT branch_id, MIN(id) AS id
+                    FROM establishments
+                    GROUP BY branch_id
+                ) e
+                WHERE cs.establishment_id IS NULL
+                  AND cs.branch_id IS NOT NULL
+                  AND cs.branch_id = e.branch_id;
+                """
+            )
+        )
 
         # user preference: visible branches in header
         db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS visible_branch_ids JSONB NULL"))

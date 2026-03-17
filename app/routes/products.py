@@ -86,6 +86,7 @@ def list_products(
     limit: int = 50,
     offset: int = 0,
     branch_id: int | None = None,
+    establishment_id: int | None = None,
     low_stock: bool = False,
     is_active: bool | None = None,
     in_stock: bool = False,
@@ -127,6 +128,15 @@ def list_products(
     business_type = branch.business_type or "retail"
     stmt = stmt.where(Product.branch_id == effective_branch_id).where(Product.business_type == business_type)
 
+    # Scope by establishment (ponto)
+    if is_admin:
+        if establishment_id is not None:
+            stmt = stmt.where(Product.establishment_id == int(establishment_id))
+    else:
+        if not getattr(current_user, "establishment_id", None):
+            raise HTTPException(status_code=400, detail="Ponto inválido")
+        stmt = stmt.where(Product.establishment_id == int(current_user.establishment_id))
+
     if low_stock:
         stmt = (
             stmt.where(Product.track_stock.is_(True))
@@ -161,6 +171,18 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db), curren
     if not branch or branch.company_id != current_user.company_id:
         raise HTTPException(status_code=400, detail="Filial inválida")
     business_type = branch.business_type or "retail"
+
+    role = (getattr(current_user, "role", "") or "").strip().lower()
+    is_admin = role in {"admin", "owner"}
+
+    effective_establishment_id: int | None = None
+    if is_admin and getattr(payload, "establishment_id", None):
+        effective_establishment_id = int(payload.establishment_id)
+    else:
+        effective_establishment_id = int(getattr(current_user, "establishment_id", 0) or 0)
+
+    if not effective_establishment_id:
+        raise HTTPException(status_code=400, detail="Ponto inválido")
 
     category_id = payload.category_id
     if payload.category_name and payload.category_name.strip():
@@ -206,6 +228,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db), curren
     product = Product(
         company_id=current_user.company_id,
         branch_id=int(current_user.branch_id),
+        establishment_id=effective_establishment_id,
         category_id=category_id,
         supplier_id=payload.supplier_id,
         default_location_id=payload.default_location_id,
@@ -275,6 +298,11 @@ def update_product(
         raise HTTPException(status_code=404, detail="Produto não encontrado")
 
     data = payload.model_dump(exclude_unset=True)
+
+    role = (getattr(current_user, "role", "") or "").strip().lower()
+    is_admin = role in {"admin", "owner"}
+    if (not is_admin) and ("establishment_id" in data):
+        raise HTTPException(status_code=403, detail="Sem permissão para alterar o ponto do produto")
 
     is_service_next = bool(data.get("is_service", getattr(product, "is_service", False)))
     if is_service_next:

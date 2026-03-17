@@ -13,6 +13,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     company_id: Mapped[int] = mapped_column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
     branch_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    establishment_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("establishments.id"), nullable=True, index=True)
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     username: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
