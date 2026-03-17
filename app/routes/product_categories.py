@@ -39,12 +39,37 @@ DEFAULT_CATEGORIES: dict[str, list[str]] = {
         "Ortopedia e Mobilidade",
         "Outros",
     ],
-    "reprography": ["Cópias", "Impressões", "Encadernação", "Papelaria", "Serviços"],
+    "reprography": ["Cópias", "Impressões", "Digitalização", "Encadernação", "Plastificação", "Design", "Papelaria", "Serviços"],
+}
+
+
+def _normalize_business_type(value: str | None) -> str:
+    bt = (value or '').strip().lower()
+    if not bt:
+        return ''
+    aliases = {
+        'reprografia': 'reprography',
+    }
+    return aliases.get(bt, bt)
+
+
+DEFAULT_CATEGORY_COLORS: dict[str, dict[str, str]] = {
+    "reprography": {
+        "cópias": "#3b82f6",
+        "impressões": "#8b5cf6",
+        "digitalização": "#06b6d4",
+        "encadernação": "#f97316",
+        "plastificação": "#22c55e",
+        "design": "#ec4899",
+        "papelaria": "#64748b",
+        "serviços": "#eab308",
+    }
 }
 
 
 def _ensure_default_categories(db: Session, company_id: int, business_type: str):
     defaults = DEFAULT_CATEGORIES.get(business_type) or DEFAULT_CATEGORIES["retail"]
+    default_colors = DEFAULT_CATEGORY_COLORS.get(business_type) or {}
     existing = {
         (r.name or "").strip().lower()
         for r in db.scalars(
@@ -55,9 +80,17 @@ def _ensure_default_categories(db: Session, company_id: int, business_type: str)
     }
     created_any = False
     for name in defaults:
-        if name.strip().lower() in existing:
+        key = name.strip().lower()
+        if key in existing:
             continue
-        db.add(ProductCategory(company_id=company_id, business_type=business_type, name=name))
+        db.add(
+            ProductCategory(
+                company_id=company_id,
+                business_type=business_type,
+                name=name,
+                color=default_colors.get(key),
+            )
+        )
         created_any = True
     if created_any:
         db.commit()
@@ -70,8 +103,7 @@ def list_product_categories(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    company = db.get(Company, current_user.company_id)
-    bt = business_type or (company.business_type if company else "retail")
+    bt = _get_effective_business_type(db, current_user, business_type)
 
     _ensure_default_categories(db, current_user.company_id, bt)
 
@@ -85,14 +117,14 @@ def list_product_categories(
 
 
 def _get_effective_business_type(db: Session, current_user: User, business_type: str | None) -> str:
-    bt = (business_type or '').strip().lower() if business_type else ''
+    bt = _normalize_business_type(business_type)
     if bt:
         return bt
     branch = db.get(Branch, int(current_user.branch_id))
     if branch and branch.company_id == current_user.company_id:
-        return (branch.business_type or 'retail').strip().lower()
+        return _normalize_business_type(branch.business_type) or 'retail'
     company = db.get(Company, current_user.company_id)
-    return ((company.business_type if company else 'retail') or 'retail').strip().lower()
+    return _normalize_business_type((company.business_type if company else 'retail') or 'retail') or 'retail'
 
 
 def _ensure_admin(current_user: User):
@@ -122,7 +154,12 @@ def create_product_category(
     if exists:
         return exists
 
-    row = ProductCategory(company_id=current_user.company_id, business_type=bt, name=name)
+    row = ProductCategory(
+        company_id=current_user.company_id,
+        business_type=bt,
+        name=name,
+        color=(payload.color or '').strip() or None,
+    )
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -156,6 +193,7 @@ def update_product_category(
         raise HTTPException(status_code=400, detail='Já existe uma categoria com este nome')
 
     row.name = name
+    row.color = (payload.color or '').strip() or None
     db.commit()
     db.refresh(row)
     return row

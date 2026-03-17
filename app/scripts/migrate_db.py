@@ -722,6 +722,7 @@ def main():
                     company_id INTEGER NOT NULL REFERENCES companies(id),
                     business_type VARCHAR(50) NOT NULL,
                     name VARCHAR(100) NOT NULL,
+                    color VARCHAR(32) NULL,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     CONSTRAINT uq_product_categories_company_business_name UNIQUE(company_id, business_type, name)
@@ -729,8 +730,151 @@ def main():
                 """
             )
         )
+        db.execute(text("ALTER TABLE product_categories ADD COLUMN IF NOT EXISTS color VARCHAR(32) NULL"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_product_categories_company_id ON product_categories(company_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_product_categories_business_type ON product_categories(business_type)"))
+
+        # reprography: printers
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS printers (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL REFERENCES companies(id),
+                    branch_id INTEGER NOT NULL REFERENCES branches(id),
+                    establishment_id INTEGER NOT NULL REFERENCES establishments(id),
+                    serial_number VARCHAR(120) NOT NULL,
+                    brand VARCHAR(120) NULL,
+                    model VARCHAR(120) NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    CONSTRAINT uq_printers_scope_serial UNIQUE(company_id, branch_id, establishment_id, serial_number)
+                );
+                """
+            )
+        )
+        db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS company_id INTEGER"))
+        db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS branch_id INTEGER"))
+        db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS establishment_id INTEGER"))
+        db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS serial_number VARCHAR(120)"))
+        db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS brand VARCHAR(120) NULL"))
+        db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS model VARCHAR(120) NULL"))
+        db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"))
+        db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()"))
+        db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printers_company_id ON printers(company_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printers_branch_id ON printers(branch_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printers_establishment_id ON printers(establishment_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printers_serial_number ON printers(serial_number)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printers_is_active ON printers(is_active)"))
+
+        # reprography: printer counter types
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS printer_counter_types (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL REFERENCES companies(id),
+                    branch_id INTEGER NOT NULL REFERENCES branches(id),
+                    establishment_id INTEGER NOT NULL REFERENCES establishments(id),
+                    code VARCHAR(50) NOT NULL,
+                    name VARCHAR(120) NOT NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    CONSTRAINT uq_printer_counter_types_scope_code UNIQUE(company_id, branch_id, establishment_id, code)
+                );
+                """
+            )
+        )
+        db.execute(text("ALTER TABLE printer_counter_types ADD COLUMN IF NOT EXISTS company_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_counter_types ADD COLUMN IF NOT EXISTS branch_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_counter_types ADD COLUMN IF NOT EXISTS establishment_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_counter_types ADD COLUMN IF NOT EXISTS code VARCHAR(50)"))
+        db.execute(text("ALTER TABLE printer_counter_types ADD COLUMN IF NOT EXISTS name VARCHAR(120)"))
+        db.execute(text("ALTER TABLE printer_counter_types ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"))
+        db.execute(text("ALTER TABLE printer_counter_types ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()"))
+        db.execute(text("ALTER TABLE printer_counter_types ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_counter_types_company_id ON printer_counter_types(company_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_counter_types_branch_id ON printer_counter_types(branch_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_counter_types_establishment_id ON printer_counter_types(establishment_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_counter_types_code ON printer_counter_types(code)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_counter_types_is_active ON printer_counter_types(is_active)"))
+
+        # reprography: printer contracts (allowance + price per page)
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS printer_contracts (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL REFERENCES companies(id),
+                    branch_id INTEGER NOT NULL REFERENCES branches(id),
+                    establishment_id INTEGER NOT NULL REFERENCES establishments(id),
+                    printer_id INTEGER NOT NULL REFERENCES printers(id),
+                    counter_type_id INTEGER NOT NULL REFERENCES printer_counter_types(id),
+                    monthly_allowance INTEGER NOT NULL DEFAULT 0,
+                    price_per_page NUMERIC(12,4) NOT NULL DEFAULT 0,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    CONSTRAINT uq_printer_contracts_scope_printer_type UNIQUE(company_id, branch_id, establishment_id, printer_id, counter_type_id)
+                );
+                """
+            )
+        )
+        db.execute(text("ALTER TABLE printer_contracts ADD COLUMN IF NOT EXISTS company_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_contracts ADD COLUMN IF NOT EXISTS branch_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_contracts ADD COLUMN IF NOT EXISTS establishment_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_contracts ADD COLUMN IF NOT EXISTS printer_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_contracts ADD COLUMN IF NOT EXISTS counter_type_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_contracts ADD COLUMN IF NOT EXISTS monthly_allowance INTEGER NOT NULL DEFAULT 0"))
+        db.execute(text("ALTER TABLE printer_contracts ADD COLUMN IF NOT EXISTS price_per_page NUMERIC(12,4) NOT NULL DEFAULT 0"))
+        db.execute(text("ALTER TABLE printer_contracts ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"))
+        db.execute(text("ALTER TABLE printer_contracts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()"))
+        db.execute(text("ALTER TABLE printer_contracts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_contracts_company_id ON printer_contracts(company_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_contracts_branch_id ON printer_contracts(branch_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_contracts_establishment_id ON printer_contracts(establishment_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_contracts_printer_id ON printer_contracts(printer_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_contracts_counter_type_id ON printer_contracts(counter_type_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_contracts_is_active ON printer_contracts(is_active)"))
+
+        # reprography: printer readings
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS printer_readings (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL REFERENCES companies(id),
+                    branch_id INTEGER NOT NULL REFERENCES branches(id),
+                    establishment_id INTEGER NOT NULL REFERENCES establishments(id),
+                    printer_id INTEGER NOT NULL REFERENCES printers(id),
+                    counter_type_id INTEGER NOT NULL REFERENCES printer_counter_types(id),
+                    reading_date TIMESTAMPTZ NOT NULL,
+                    counter_value INTEGER NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    CONSTRAINT uq_printer_readings_scope_unique UNIQUE(company_id, branch_id, establishment_id, printer_id, counter_type_id, reading_date)
+                );
+                """
+            )
+        )
+        db.execute(text("ALTER TABLE printer_readings ADD COLUMN IF NOT EXISTS company_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_readings ADD COLUMN IF NOT EXISTS branch_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_readings ADD COLUMN IF NOT EXISTS establishment_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_readings ADD COLUMN IF NOT EXISTS printer_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_readings ADD COLUMN IF NOT EXISTS counter_type_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_readings ADD COLUMN IF NOT EXISTS reading_date TIMESTAMPTZ"))
+        db.execute(text("ALTER TABLE printer_readings ADD COLUMN IF NOT EXISTS counter_value INTEGER"))
+        db.execute(text("ALTER TABLE printer_readings ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()"))
+        db.execute(text("ALTER TABLE printer_readings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_readings_company_id ON printer_readings(company_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_readings_branch_id ON printer_readings(branch_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_readings_establishment_id ON printer_readings(establishment_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_readings_printer_id ON printer_readings(printer_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_readings_counter_type_id ON printer_readings(counter_type_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_readings_reading_date ON printer_readings(reading_date)"))
 
         # product_images
         db.execute(

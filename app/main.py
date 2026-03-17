@@ -6,7 +6,7 @@ import logging
 import os
 import time
 
-from app.routes import auth, branches, cash_sessions, companies, customers, dashboard, debts, debug_menu, establishments, fiscal_documents, legacy_public_api, orders, product_categories, product_stocks, products, public_menu, quotes, reports, restaurant_tables, sales, stock_adjustments, stock_locations, stock_movements, stock_transfers, supplier_payments, supplier_purchases, suppliers, users
+from app.routes import auth, branches, cash_sessions, companies, customers, dashboard, debts, debug_menu, establishments, fiscal_documents, legacy_public_api, orders, printers, product_categories, product_stocks, products, public_menu, quotes, reports, restaurant_tables, sales, stock_adjustments, stock_locations, stock_movements, stock_transfers, supplier_payments, supplier_purchases, suppliers, users
 from app.settings import Settings
 
 settings = Settings()
@@ -59,6 +59,7 @@ app.include_router(suppliers.router, prefix="/suppliers", tags=["suppliers"])
 app.include_router(supplier_purchases.router, prefix="/supplier-purchases", tags=["supplier-purchases"])
 app.include_router(supplier_payments.router, prefix="/supplier-payments", tags=["supplier-payments"])
 app.include_router(product_categories.router, prefix="/product-categories", tags=["product-categories"])
+app.include_router(printers.router, prefix="/printers", tags=["printers"])
 app.include_router(products.router, prefix="/products", tags=["products"])
 app.include_router(users.router, prefix="/users", tags=["users"])
 
