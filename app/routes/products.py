@@ -133,6 +133,12 @@ def list_products(
     if is_admin:
         if establishment_id is not None:
             stmt = stmt.where(Product.establishment_id == int(establishment_id))
+        else:
+            # Pharmacy: do not mix products across points by default, even for admins.
+            if (business_type or "").strip().lower() == "pharmacy":
+                if not getattr(current_user, "establishment_id", None):
+                    raise HTTPException(status_code=400, detail="Ponto inválido")
+                stmt = stmt.where(Product.establishment_id == int(current_user.establishment_id))
     else:
         if not getattr(current_user, "establishment_id", None):
             raise HTTPException(status_code=400, detail="Ponto inválido")
@@ -156,7 +162,16 @@ def list_products(
         stmt = stmt.where(Product.category_id == int(category_id))
 
     if q:
-        stmt = stmt.where(Product.name.ilike(f"%{q}%"))
+        qq = (q or "").strip()
+        if qq:
+            like = f"%{qq}%"
+            stmt = stmt.where(
+                or_(
+                    Product.name.ilike(like),
+                    Product.sku.ilike(like),
+                    Product.barcode.ilike(like),
+                )
+            )
 
     rows = db.execute(stmt.order_by(Product.name.asc(), Product.id.asc()).limit(limit).offset(offset)).all()
     out: list[ProductOut] = []
@@ -180,10 +195,13 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db), curren
     is_admin = role in {"admin", "owner"}
 
     effective_establishment_id: int | None = None
-    if is_admin and getattr(payload, "establishment_id", None):
-        effective_establishment_id = int(payload.establishment_id)
-    else:
+    if (business_type or "").strip().lower() == "pharmacy":
         effective_establishment_id = int(getattr(current_user, "establishment_id", 0) or 0)
+    else:
+        if is_admin and getattr(payload, "establishment_id", None):
+            effective_establishment_id = int(payload.establishment_id)
+        else:
+            effective_establishment_id = int(getattr(current_user, "establishment_id", 0) or 0)
 
     if not effective_establishment_id:
         raise HTTPException(status_code=400, detail="Ponto inválido")
