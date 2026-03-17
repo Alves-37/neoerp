@@ -87,6 +87,7 @@ def list_products(
     offset: int = 0,
     branch_id: int | None = None,
     establishment_id: int | None = None,
+    category_id: int | None = None,
     low_stock: bool = False,
     is_active: bool | None = None,
     in_stock: bool = False,
@@ -150,6 +151,9 @@ def list_products(
 
     if is_active is not None:
         stmt = stmt.where(Product.is_active.is_(bool(is_active)))
+
+    if category_id is not None:
+        stmt = stmt.where(Product.category_id == int(category_id))
 
     if q:
         stmt = stmt.where(Product.name.ilike(f"%{q}%"))
