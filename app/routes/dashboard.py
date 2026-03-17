@@ -203,7 +203,7 @@ def get_dashboard_summary(
         low_stock_warehouse_stmt = low_stock_warehouse_stmt.where(Product.establishment_id == effective_establishment_id)
     low_stock_warehouse_count = db.scalar(low_stock_warehouse_stmt)
 
-    stock_values = db.execute(
+    stock_values_stmt = (
         select(
             func.coalesce(func.sum(qty_default_expr * func.coalesce(Product.cost, 0)), 0).label("stock_value_cost"),
             func.coalesce(func.sum(qty_default_expr * func.coalesce(Product.price, 0)), 0).label("stock_value_potential"),
@@ -223,9 +223,9 @@ def get_dashboard_summary(
         .where(Product.is_active.is_(True))
     )
     if effective_establishment_id is not None:
-        stock_values = db.execute(stock_values.where(Product.establishment_id == effective_establishment_id)).one()
-    else:
-        stock_values = db.execute(stock_values).one()
+        stock_values_stmt = stock_values_stmt.where(Product.establishment_id == effective_establishment_id)
+
+    stock_values = db.execute(stock_values_stmt).one()
 
     return DashboardSummaryOut(
         products_total=int(products_total or 0),
