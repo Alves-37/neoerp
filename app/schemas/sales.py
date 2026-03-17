@@ -49,6 +49,7 @@ class SaleOut(BaseModel):
     branch_id: int
     business_type: str
     cashier_id: int | None = None
+    cash_session_id: int | None = None
     cashier_name: str | None = None
     sale_channel: str
     table_number: int | None = None

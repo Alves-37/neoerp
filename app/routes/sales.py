@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database.connection import get_db
 from app.deps import get_current_user
 from app.models.branch import Branch
+from app.models.cash_session import CashSession
 from app.models.fiscal_document import FiscalDocument
 from app.models.product import Product
 from app.models.product_stock import ProductStock
@@ -371,6 +372,7 @@ def edit_sale(
         branch_id=getattr(sale, "branch_id", 0) or 0,
         business_type=sale.business_type,
         cashier_id=getattr(sale, "cashier_id", None),
+        cash_session_id=getattr(sale, "cash_session_id", None),
         cashier_name=current_user.name,
         sale_channel=sale.sale_channel,
         table_number=sale.table_number,
@@ -467,6 +469,7 @@ def list_sales(
                 branch_id=getattr(s, "branch_id", 0) or 0,
                 business_type=s.business_type,
                 cashier_id=getattr(s, "cashier_id", None),
+                cash_session_id=getattr(s, "cash_session_id", None),
                 cashier_name=cashier_name,
                 sale_channel=s.sale_channel,
                 table_number=s.table_number,
@@ -512,6 +515,18 @@ def create_sale(
     if not branch or branch.company_id != current_user.company_id:
         raise HTTPException(status_code=400, detail="Filial inválida")
     business_type = (branch.business_type or "retail").strip().lower()
+
+    cash_session = db.scalar(
+        select(CashSession)
+        .where(CashSession.company_id == current_user.company_id)
+        .where(CashSession.branch_id == int(current_user.branch_id))
+        .where(CashSession.opened_by == current_user.id)
+        .where(CashSession.status == "open")
+        .order_by(CashSession.id.desc())
+        .limit(1)
+    )
+    if not cash_session:
+        raise HTTPException(status_code=409, detail="Caixa fechado. Abra o caixa para registrar vendas")
 
     sale_channel = (payload.sale_channel or "counter").strip().lower()
     if sale_channel not in {"counter", "table"}:
@@ -599,6 +614,7 @@ def create_sale(
         company_id=current_user.company_id,
         branch_id=int(current_user.branch_id),
         cashier_id=current_user.id,
+        cash_session_id=int(cash_session.id),
         business_type=business_type,
         total=gross_total,
         net_total=net_total,
@@ -680,6 +696,7 @@ def create_sale(
         branch_id=getattr(sale, "branch_id", 0) or 0,
         business_type=sale.business_type,
         cashier_id=getattr(sale, "cashier_id", None),
+        cash_session_id=getattr(sale, "cash_session_id", None),
         cashier_name=current_user.name,
         sale_channel=sale.sale_channel,
         table_number=sale.table_number,

@@ -41,6 +41,37 @@ def main():
         db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS branch_id INTEGER"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_users_branch_id ON users(branch_id)"))
 
+        # cash sessions (abertura/fecho de caixa)
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS cash_sessions (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL REFERENCES companies(id),
+                    branch_id INTEGER NOT NULL REFERENCES branches(id),
+                    opened_by INTEGER NOT NULL REFERENCES users(id),
+                    opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    opening_balance NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    status VARCHAR(20) NOT NULL DEFAULT 'open',
+                    closed_at TIMESTAMPTZ NULL,
+                    closed_by INTEGER NULL REFERENCES users(id),
+                    closing_balance_expected NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    closing_balance_counted NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    difference NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    notes VARCHAR(255) NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                """
+            )
+        )
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_company_id ON cash_sessions(company_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_branch_id ON cash_sessions(branch_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_opened_by ON cash_sessions(opened_by)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_status ON cash_sessions(status)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_opened_at ON cash_sessions(opened_at)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_closed_at ON cash_sessions(closed_at)"))
+
         # user preference: visible branches in header
         db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS visible_branch_ids JSONB NULL"))
 
@@ -110,6 +141,9 @@ def main():
 
         db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS branch_id INTEGER"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_sales_branch_id ON sales(branch_id)"))
+
+        db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS cash_session_id INTEGER NULL REFERENCES cash_sessions(id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sales_cash_session_id ON sales(cash_session_id)"))
 
         # sales VAT fields
         db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS include_tax BOOLEAN NOT NULL DEFAULT TRUE"))
