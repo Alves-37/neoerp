@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from calendar import monthrange
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -50,9 +50,9 @@ def _month_window(year: int, month: int) -> tuple[datetime, datetime]:
         raise HTTPException(status_code=400, detail="Ano inválido")
     if month < 1 or month > 12:
         raise HTTPException(status_code=400, detail="Mês inválido")
-    start = datetime(year, month, 1)
+    start = datetime(year, month, 1, tzinfo=timezone.utc)
     last_day = monthrange(year, month)[1]
-    end = datetime(year, month, last_day, 23, 59, 59, 999999)
+    end = datetime(year, month, last_day, 23, 59, 59, 999999, tzinfo=timezone.utc)
     return start, end
 
 
