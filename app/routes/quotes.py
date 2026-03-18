@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+import os
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
@@ -15,8 +16,10 @@ from app.models.sale_item import SaleItem
 from app.models.user import User
 from app.schemas.quotes import ConvertQuotePayload, CreateQuotePayload, QuoteItemOut, QuoteOut, QuoteUpdatePayload
 from app.utils.pdf import quote_pdf_elements, render_pdf
+from app.settings import Settings
 
 router = APIRouter()
+settings = Settings()
 
 
 def _next_quote_number(db: Session, company_id: int, series: str) -> int:
@@ -323,6 +326,10 @@ def quote_pdf(
 
     company = db.get(Company, current_user.company_id)
     company_dict = company.__dict__ if company else {}
+    logo_url = (company_dict.get("logo_url") or "").strip()
+    if logo_url.startswith("/uploads/"):
+        fn = logo_url.split("/uploads/", 1)[1]
+        company_dict["logo_path"] = os.path.join(settings.upload_dir, fn)
 
     quote_dict = {
         "id": int(quote.id),

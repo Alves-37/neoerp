@@ -247,7 +247,7 @@ def quote_pdf_elements(data: dict, company: dict) -> list:
 
     fields = [
         _field_row("Cliente:", customer_name),
-        _field_row("CNPJ:", customer_nuit),
+        _field_row("NUIT:", customer_nuit),
         _field_row("Endereço:", ""),
         _field_row("Cidade:", ""),
         _field_row("Telefone:", ""),
@@ -348,6 +348,21 @@ def quote_pdf_elements(data: dict, company: dict) -> list:
 
         # Bottom-right brand text
         brand = (company.get("name") or "").strip()
+        logo_path = (company.get("logo_path") or "").strip()
+        if logo_path:
+            try:
+                # Draw logo above the brand text (approx template)
+                canvas.drawImage(
+                    logo_path,
+                    width - 15 * mm - 20 * mm,
+                    8.5 * mm,
+                    width=18 * mm,
+                    height=18 * mm,
+                    preserveAspectRatio=True,
+                    mask='auto',
+                )
+            except Exception:
+                pass
         if brand:
             canvas.setFont("Helvetica-Bold", 16)
             canvas.drawRightString(width - 15 * mm, 14 * mm, brand[:24])
