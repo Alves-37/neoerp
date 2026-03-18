@@ -615,6 +615,12 @@ def _pdv3_compute_monthly_copies(
     start_dt, end_dt = _month_window(year, month)
     branch_id = int(current_user.branch_id)
 
+    total_counter_type = _get_or_create_pdv3_total_counter_type(
+        db,
+        company_id=int(current_user.company_id),
+        branch_id=branch_id,
+    )
+
     printers = db.scalars(
         select(Printer)
         .where(Printer.company_id == current_user.company_id)
