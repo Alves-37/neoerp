@@ -33,6 +33,58 @@ class PrinterOut(PrinterBase):
         from_attributes = True
 
 
+class PrinterBillingLineOut(BaseModel):
+    printer_id: int
+    counter_type_id: int
+    counter_type_code: str | None = None
+    counter_type_name: str | None = None
+
+    start_reading_date: datetime | None = None
+    start_counter_value: int | None = None
+    end_reading_date: datetime | None = None
+    end_counter_value: int | None = None
+
+    pages_used: int = 0
+    monthly_allowance: int = 0
+    excess_pages: int = 0
+    price_per_page: float = 0
+    excess_total: float = 0
+
+
+class PrinterBillingPrinterOut(BaseModel):
+    printer_id: int
+    serial_number: str | None = None
+    brand: str | None = None
+    model: str | None = None
+    lines: list[PrinterBillingLineOut] = []
+    total_excess_pages: int = 0
+    total_excess_amount: float = 0
+
+
+class PrinterBillingOut(BaseModel):
+    year: int
+    month: int
+    company_id: int
+    branch_id: int
+    establishment_id: int
+    printers: list[PrinterBillingPrinterOut] = []
+    total_excess_pages: int = 0
+    total_excess_amount: float = 0
+
+
+class PrinterBillingGenerateLaunchPayload(BaseModel):
+    year: int
+    month: int
+    establishment_id: int | None = None
+    include_zero: bool = False
+
+
+class PrinterBillingGenerateLaunchOut(BaseModel):
+    ok: bool = True
+    sale_id: int
+    total: float
+
+
 class PrinterCounterTypeBase(BaseModel):
     code: str
     name: str

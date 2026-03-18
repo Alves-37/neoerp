@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
+from calendar import monthrange
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -10,9 +11,19 @@ from sqlalchemy.orm import Session
 from app.database.connection import get_db
 from app.deps import get_current_user
 from app.models.branch import Branch
+from app.models.cash_session import CashSession
 from app.models.printer import Printer, PrinterContract, PrinterCounterType, PrinterReading
+from app.models.product import Product
+from app.models.sale import Sale
+from app.models.sale_item import SaleItem
+from app.models.stock_location import StockLocation
 from app.models.user import User
 from app.schemas.printers import (
+    PrinterBillingGenerateLaunchOut,
+    PrinterBillingGenerateLaunchPayload,
+    PrinterBillingLineOut,
+    PrinterBillingOut,
+    PrinterBillingPrinterOut,
     PrinterContractCreate,
     PrinterContractOut,
     PrinterContractUpdate,
@@ -29,11 +40,243 @@ from app.schemas.printers import (
 router = APIRouter()
 
 
+def _month_window(year: int, month: int) -> tuple[datetime, datetime]:
+    if year < 2000 or year > 2100:
+        raise HTTPException(status_code=400, detail="Ano inválido")
+    if month < 1 or month > 12:
+        raise HTTPException(status_code=400, detail="Mês inválido")
+    start = datetime(year, month, 1)
+    last_day = monthrange(year, month)[1]
+    end = datetime(year, month, last_day, 23, 59, 59, 999999)
+    return start, end
+
+
+def _get_default_location_id(db: Session, *, company_id: int, branch_id: int) -> int:
+    loc = db.scalar(
+        select(StockLocation)
+        .where(StockLocation.company_id == company_id)
+        .where(StockLocation.branch_id == int(branch_id))
+        .where(StockLocation.is_active.is_(True))
+        .order_by(StockLocation.is_default.desc(), StockLocation.id.asc())
+        .limit(1)
+    )
+    if not loc:
+        raise HTTPException(status_code=400, detail="Sem local de stock para a filial")
+    return int(loc.id)
+
+
+def _get_or_create_excess_service_product(
+    db: Session,
+    *,
+    company_id: int,
+    branch_id: int,
+    establishment_id: int,
+    business_type: str,
+    counter_type: PrinterCounterType,
+) -> Product:
+    code = (counter_type.code or '').strip().upper()
+    name = (counter_type.name or '').strip() or code
+    product_name = f"Excedente Impressão - {name}"
+
+    existing = db.scalar(
+        select(Product)
+        .where(Product.company_id == company_id)
+        .where(Product.branch_id == int(branch_id))
+        .where(Product.establishment_id == int(establishment_id))
+        .where(func.lower(Product.name) == product_name.lower())
+        .where(Product.is_service.is_(True))
+        .limit(1)
+    )
+    if existing:
+        return existing
+
+    default_location_id = _get_default_location_id(db, company_id=company_id, branch_id=branch_id)
+    row = Product(
+        company_id=company_id,
+        branch_id=int(branch_id),
+        establishment_id=int(establishment_id),
+        category_id=None,
+        supplier_id=None,
+        default_location_id=int(default_location_id),
+        business_type=business_type,
+        name=product_name,
+        sku=None,
+        barcode=None,
+        unit="un",
+        price=0,
+        cost=0,
+        tax_rate=0,
+        min_stock=0,
+        track_stock=False,
+        is_service=True,
+        is_active=True,
+        show_in_menu=False,
+        attributes={},
+    )
+    db.add(row)
+    db.flush()
+    db.refresh(row)
+    return row
+
+
+def _compute_monthly_billing(
+    db: Session,
+    *,
+    current_user: User,
+    establishment_id: int,
+    year: int,
+    month: int,
+) -> PrinterBillingOut:
+    start_dt, end_dt = _month_window(year, month)
+    branch_id = int(current_user.branch_id)
+
+    printers = db.scalars(
+        select(Printer)
+        .where(Printer.company_id == current_user.company_id)
+        .where(Printer.branch_id == branch_id)
+        .where(Printer.establishment_id == int(establishment_id))
+        .order_by(Printer.serial_number.asc(), Printer.id.asc())
+    ).all()
+    printers_by_id = {int(p.id): p for p in printers}
+
+    ctypes = db.scalars(
+        select(PrinterCounterType)
+        .where(PrinterCounterType.company_id == current_user.company_id)
+        .where(PrinterCounterType.branch_id == branch_id)
+        .where(PrinterCounterType.establishment_id == int(establishment_id))
+        .order_by(PrinterCounterType.name.asc(), PrinterCounterType.id.asc())
+    ).all()
+    ctype_by_id = {int(c.id): c for c in ctypes}
+
+    contracts = db.scalars(
+        select(PrinterContract)
+        .where(PrinterContract.company_id == current_user.company_id)
+        .where(PrinterContract.branch_id == branch_id)
+        .where(PrinterContract.establishment_id == int(establishment_id))
+        .where(PrinterContract.is_active.is_(True))
+        .order_by(PrinterContract.id.asc())
+    ).all()
+
+    per_printer: dict[int, PrinterBillingPrinterOut] = {}
+    total_pages = 0
+    total_amount = 0.0
+
+    for c in contracts:
+        pid = int(c.printer_id)
+        tid = int(c.counter_type_id)
+        printer = printers_by_id.get(pid)
+        ctype = ctype_by_id.get(tid)
+        if not printer or not ctype:
+            continue
+
+        start_row = db.scalar(
+            select(PrinterReading)
+            .where(PrinterReading.company_id == current_user.company_id)
+            .where(PrinterReading.branch_id == branch_id)
+            .where(PrinterReading.establishment_id == int(establishment_id))
+            .where(PrinterReading.printer_id == pid)
+            .where(PrinterReading.counter_type_id == tid)
+            .where(PrinterReading.reading_date < start_dt)
+            .order_by(PrinterReading.reading_date.desc(), PrinterReading.id.desc())
+            .limit(1)
+        )
+
+        end_row = db.scalar(
+            select(PrinterReading)
+            .where(PrinterReading.company_id == current_user.company_id)
+            .where(PrinterReading.branch_id == branch_id)
+            .where(PrinterReading.establishment_id == int(establishment_id))
+            .where(PrinterReading.printer_id == pid)
+            .where(PrinterReading.counter_type_id == tid)
+            .where(PrinterReading.reading_date <= end_dt)
+            .order_by(PrinterReading.reading_date.desc(), PrinterReading.id.desc())
+            .limit(1)
+        )
+
+        pages_used = 0
+        if start_row and end_row:
+            pages_used = max(0, int(end_row.counter_value) - int(start_row.counter_value))
+        elif end_row:
+            # No reading before the month; try to use first reading inside the month as start.
+            first_in_month = db.scalar(
+                select(PrinterReading)
+                .where(PrinterReading.company_id == current_user.company_id)
+                .where(PrinterReading.branch_id == branch_id)
+                .where(PrinterReading.establishment_id == int(establishment_id))
+                .where(PrinterReading.printer_id == pid)
+                .where(PrinterReading.counter_type_id == tid)
+                .where(PrinterReading.reading_date >= start_dt)
+                .where(PrinterReading.reading_date <= end_dt)
+                .order_by(PrinterReading.reading_date.asc(), PrinterReading.id.asc())
+                .limit(1)
+            )
+            if first_in_month and int(end_row.id) != int(first_in_month.id):
+                pages_used = max(0, int(end_row.counter_value) - int(first_in_month.counter_value))
+                start_row = first_in_month
+
+        allowance = int(c.monthly_allowance or 0)
+        excess_pages = max(0, int(pages_used) - allowance)
+        price = float(c.price_per_page or 0)
+        excess_total = round(float(excess_pages) * price, 2)
+
+        line = PrinterBillingLineOut(
+            printer_id=pid,
+            counter_type_id=tid,
+            counter_type_code=ctype.code,
+            counter_type_name=ctype.name,
+            start_reading_date=(start_row.reading_date if start_row else None),
+            start_counter_value=(int(start_row.counter_value) if start_row else None),
+            end_reading_date=(end_row.reading_date if end_row else None),
+            end_counter_value=(int(end_row.counter_value) if end_row else None),
+            pages_used=int(pages_used),
+            monthly_allowance=allowance,
+            excess_pages=int(excess_pages),
+            price_per_page=float(price),
+            excess_total=float(excess_total),
+        )
+
+        bucket = per_printer.get(pid)
+        if not bucket:
+            bucket = PrinterBillingPrinterOut(
+                printer_id=pid,
+                serial_number=printer.serial_number,
+                brand=printer.brand,
+                model=printer.model,
+                lines=[],
+                total_excess_pages=0,
+                total_excess_amount=0,
+            )
+            per_printer[pid] = bucket
+
+        bucket.lines.append(line)
+        bucket.total_excess_pages = int(bucket.total_excess_pages) + int(excess_pages)
+        bucket.total_excess_amount = round(float(bucket.total_excess_amount) + float(excess_total), 2)
+
+        total_pages += int(excess_pages)
+        total_amount = round(float(total_amount) + float(excess_total), 2)
+
+    printers_out = list(per_printer.values())
+    printers_out.sort(key=lambda x: (x.serial_number or "", x.printer_id))
+
+    return PrinterBillingOut(
+        year=int(year),
+        month=int(month),
+        company_id=int(current_user.company_id),
+        branch_id=branch_id,
+        establishment_id=int(establishment_id),
+        printers=printers_out,
+        total_excess_pages=int(total_pages),
+        total_excess_amount=float(total_amount),
+    )
+
+
 def _ensure_reprography_branch(db: Session, current_user: User) -> None:
     branch = db.get(Branch, int(current_user.branch_id))
     if not branch or branch.company_id != current_user.company_id:
         raise HTTPException(status_code=400, detail="Filial inválida")
     bt = (branch.business_type or "retail").strip().lower()
+    if bt == "reprografia":
+        bt = "reprography"
     if bt != "reprography":
         raise HTTPException(status_code=400, detail="Módulo disponível apenas para reprografia")
 
@@ -114,6 +357,92 @@ def create_printer(
     return row
 
 
+@router.put("/readings/{reading_id}", response_model=PrinterReadingOut)
+def update_reading(
+    reading_id: int,
+    payload: PrinterReadingCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_reprography_branch(db, current_user)
+    _ensure_admin(current_user)
+
+    row = db.get(PrinterReading, int(reading_id))
+    if not row or row.company_id != current_user.company_id:
+        raise HTTPException(status_code=404, detail="Leitura não encontrada")
+
+    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=payload.establishment_id)
+
+    if row.branch_id != int(current_user.branch_id) or row.establishment_id != est_id:
+        raise HTTPException(status_code=400, detail="Leitura não pertence ao ponto")
+
+    if payload.counter_value < 0:
+        raise HTTPException(status_code=400, detail="Contador inválido")
+
+    # Validate monotonic counter against nearest readings excluding current row
+    prev_counter = db.scalar(
+        select(PrinterReading.counter_value)
+        .where(PrinterReading.company_id == current_user.company_id)
+        .where(PrinterReading.branch_id == int(current_user.branch_id))
+        .where(PrinterReading.establishment_id == est_id)
+        .where(PrinterReading.printer_id == int(payload.printer_id))
+        .where(PrinterReading.counter_type_id == int(payload.counter_type_id))
+        .where(PrinterReading.reading_date < payload.reading_date)
+        .where(PrinterReading.id != row.id)
+        .order_by(PrinterReading.reading_date.desc(), PrinterReading.id.desc())
+        .limit(1)
+    )
+    if prev_counter is not None and int(payload.counter_value) < int(prev_counter):
+        raise HTTPException(status_code=400, detail="Contador atual não pode ser menor que o anterior")
+
+    next_counter = db.scalar(
+        select(PrinterReading.counter_value)
+        .where(PrinterReading.company_id == current_user.company_id)
+        .where(PrinterReading.branch_id == int(current_user.branch_id))
+        .where(PrinterReading.establishment_id == est_id)
+        .where(PrinterReading.printer_id == int(payload.printer_id))
+        .where(PrinterReading.counter_type_id == int(payload.counter_type_id))
+        .where(PrinterReading.reading_date > payload.reading_date)
+        .where(PrinterReading.id != row.id)
+        .order_by(PrinterReading.reading_date.asc(), PrinterReading.id.asc())
+        .limit(1)
+    )
+    if next_counter is not None and int(payload.counter_value) > int(next_counter):
+        raise HTTPException(status_code=400, detail="Contador atual não pode ser maior que o próximo")
+
+    row.printer_id = int(payload.printer_id)
+    row.counter_type_id = int(payload.counter_type_id)
+    row.reading_date = payload.reading_date
+    row.counter_value = int(payload.counter_value)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Já existe uma leitura para este dia")
+
+    db.refresh(row)
+    return row
+
+
+@router.delete("/readings/{reading_id}")
+def delete_reading(
+    reading_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_reprography_branch(db, current_user)
+    _ensure_admin(current_user)
+
+    row = db.get(PrinterReading, int(reading_id))
+    if not row or row.company_id != current_user.company_id:
+        raise HTTPException(status_code=404, detail="Leitura não encontrada")
+
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
+
+
 @router.put("/{printer_id}", response_model=PrinterOut)
 def update_printer(
     printer_id: int,
@@ -165,6 +494,24 @@ def delete_printer(
     if not row or row.company_id != current_user.company_id:
         raise HTTPException(status_code=404, detail="Impressora não encontrada")
 
+    in_contract = db.scalar(
+        select(PrinterContract.id)
+        .where(PrinterContract.company_id == current_user.company_id)
+        .where(PrinterContract.printer_id == row.id)
+        .limit(1)
+    )
+    if in_contract:
+        raise HTTPException(status_code=409, detail="Impressora possui contratos")
+
+    in_reading = db.scalar(
+        select(PrinterReading.id)
+        .where(PrinterReading.company_id == current_user.company_id)
+        .where(PrinterReading.printer_id == row.id)
+        .limit(1)
+    )
+    if in_reading:
+        raise HTTPException(status_code=409, detail="Impressora possui leituras")
+
     db.delete(row)
     db.commit()
     return {"ok": True}
@@ -191,6 +538,151 @@ def list_counter_types(
 
     rows = db.scalars(stmt.order_by(PrinterCounterType.name.asc(), PrinterCounterType.id.asc())).all()
     return rows
+
+
+@router.get("/billing", response_model=PrinterBillingOut)
+def get_monthly_billing(
+    year: int,
+    month: int,
+    establishment_id: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_reprography_branch(db, current_user)
+    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=establishment_id)
+    return _compute_monthly_billing(db, current_user=current_user, establishment_id=est_id, year=int(year), month=int(month))
+
+
+@router.post("/billing/generate-launch", response_model=PrinterBillingGenerateLaunchOut)
+def generate_billing_launch(
+    payload: PrinterBillingGenerateLaunchPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_reprography_branch(db, current_user)
+    _ensure_admin(current_user)
+
+    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=payload.establishment_id)
+    bill = _compute_monthly_billing(db, current_user=current_user, establishment_id=est_id, year=int(payload.year), month=int(payload.month))
+
+    if not getattr(current_user, "establishment_id", None) and est_id is None:
+        raise HTTPException(status_code=400, detail="Ponto inválido")
+
+    branch = db.get(Branch, int(current_user.branch_id))
+    if not branch or branch.company_id != current_user.company_id:
+        raise HTTPException(status_code=400, detail="Filial inválida")
+    business_type = (branch.business_type or "reprography").strip().lower()
+    if business_type == "reprografia":
+        business_type = "reprography"
+
+    cash_session = db.scalar(
+        select(CashSession)
+        .where(CashSession.company_id == current_user.company_id)
+        .where(CashSession.branch_id == int(current_user.branch_id))
+        .where(CashSession.establishment_id == int(est_id))
+        .where(CashSession.opened_by == current_user.id)
+        .where(CashSession.status == "open")
+        .order_by(CashSession.id.desc())
+        .limit(1)
+    )
+    if not cash_session:
+        raise HTTPException(status_code=409, detail="Caixa fechado. Abra o caixa para gerar o lançamento")
+
+    # Build sale items from billing lines (only excess)
+    contracts_by_key: dict[tuple[int, int], PrinterContract] = {
+        (int(c.printer_id), int(c.counter_type_id)): c
+        for c in db.scalars(
+            select(PrinterContract)
+            .where(PrinterContract.company_id == current_user.company_id)
+            .where(PrinterContract.branch_id == int(current_user.branch_id))
+            .where(PrinterContract.establishment_id == int(est_id))
+            .where(PrinterContract.is_active.is_(True))
+        ).all()
+    }
+
+    ctype_by_id: dict[int, PrinterCounterType] = {
+        int(c.id): c
+        for c in db.scalars(
+            select(PrinterCounterType)
+            .where(PrinterCounterType.company_id == current_user.company_id)
+            .where(PrinterCounterType.branch_id == int(current_user.branch_id))
+            .where(PrinterCounterType.establishment_id == int(est_id))
+        ).all()
+    }
+
+    items: list[SaleItem] = []
+    net_total = 0.0
+
+    for p in bill.printers:
+        for ln in p.lines:
+            if not payload.include_zero and int(ln.excess_pages or 0) <= 0:
+                continue
+            ctype = ctype_by_id.get(int(ln.counter_type_id))
+            if not ctype:
+                continue
+            contract = contracts_by_key.get((int(ln.printer_id), int(ln.counter_type_id)))
+            price = float(contract.price_per_page or 0) if contract else float(ln.price_per_page or 0)
+            qty = int(ln.excess_pages or 0)
+            line_total = round(float(qty) * float(price), 2)
+            if not payload.include_zero and line_total <= 0:
+                continue
+
+            prod = _get_or_create_excess_service_product(
+                db,
+                company_id=current_user.company_id,
+                branch_id=int(current_user.branch_id),
+                establishment_id=int(est_id),
+                business_type=business_type,
+                counter_type=ctype,
+            )
+
+            items.append(
+                SaleItem(
+                    company_id=current_user.company_id,
+                    branch_id=int(current_user.branch_id),
+                    sale_id=0,
+                    product_id=int(prod.id),
+                    qty=float(qty),
+                    price_at_sale=float(price),
+                    cost_at_sale=0.0,
+                    line_total=float(line_total),
+                )
+            )
+            net_total = round(float(net_total) + float(line_total), 2)
+
+    if not items:
+        raise HTTPException(status_code=400, detail="Sem excedentes para lançar")
+
+    sale = Sale(
+        company_id=current_user.company_id,
+        branch_id=int(current_user.branch_id),
+        establishment_id=int(est_id),
+        cashier_id=current_user.id,
+        cash_session_id=int(cash_session.id),
+        business_type=business_type,
+        total=float(net_total),
+        net_total=float(net_total),
+        tax_total=0.0,
+        include_tax=False,
+        paid=float(net_total),
+        change=0.0,
+        payment_method="internal",
+        status="paid",
+        sale_channel="counter",
+        table_number=None,
+        seat_number=None,
+        created_at=datetime.utcnow(),
+    )
+
+    db.add(sale)
+    db.flush()
+    for it in items:
+        it.sale_id = int(sale.id)
+        db.add(it)
+    db.commit()
+    db.refresh(sale)
+
+    return PrinterBillingGenerateLaunchOut(ok=True, sale_id=int(sale.id), total=float(sale.total))
 
 
 @router.post("/counter-types", response_model=PrinterCounterTypeOut)
@@ -231,6 +723,60 @@ def create_counter_type(
     db.commit()
     db.refresh(row)
     return row
+
+
+@router.delete("/contracts/{contract_id}")
+def delete_contract(
+    contract_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_reprography_branch(db, current_user)
+    _ensure_admin(current_user)
+
+    row = db.get(PrinterContract, int(contract_id))
+    if not row or row.company_id != current_user.company_id:
+        raise HTTPException(status_code=404, detail="Contrato não encontrado")
+
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/counter-types/{counter_type_id}")
+def delete_counter_type(
+    counter_type_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_reprography_branch(db, current_user)
+    _ensure_admin(current_user)
+
+    row = db.get(PrinterCounterType, int(counter_type_id))
+    if not row or row.company_id != current_user.company_id:
+        raise HTTPException(status_code=404, detail="Tipo não encontrado")
+
+    in_contract = db.scalar(
+        select(PrinterContract.id)
+        .where(PrinterContract.company_id == current_user.company_id)
+        .where(PrinterContract.counter_type_id == row.id)
+        .limit(1)
+    )
+    if in_contract:
+        raise HTTPException(status_code=409, detail="Tipo possui contratos")
+
+    in_reading = db.scalar(
+        select(PrinterReading.id)
+        .where(PrinterReading.company_id == current_user.company_id)
+        .where(PrinterReading.counter_type_id == row.id)
+        .limit(1)
+    )
+    if in_reading:
+        raise HTTPException(status_code=409, detail="Tipo possui leituras")
+
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
 
 
 @router.put("/counter-types/{counter_type_id}", response_model=PrinterCounterTypeOut)
