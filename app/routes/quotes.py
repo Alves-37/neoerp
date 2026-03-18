@@ -1,11 +1,12 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
 from app.deps import get_current_user
+from app.models.company import Company
 from app.models.product import Product
 from app.models.quote import Quote
 from app.models.quote_item import QuoteItem
@@ -13,6 +14,7 @@ from app.models.sale import Sale
 from app.models.sale_item import SaleItem
 from app.models.user import User
 from app.schemas.quotes import ConvertQuotePayload, CreateQuotePayload, QuoteItemOut, QuoteOut, QuoteUpdatePayload
+from app.utils.pdf import quote_pdf_elements, render_pdf
 
 router = APIRouter()
 
@@ -300,3 +302,61 @@ def convert_quote_to_sale(
     db.commit()
 
     return {"quote_id": quote.id, "sale_id": sale.id}
+
+
+@router.get("/{quote_id}/pdf")
+def quote_pdf(
+    quote_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    quote = db.get(Quote, quote_id)
+    if not quote or quote.company_id != current_user.company_id:
+        raise HTTPException(status_code=404, detail="Cotação não encontrada")
+
+    items = db.scalars(
+        select(QuoteItem)
+        .where(QuoteItem.company_id == current_user.company_id)
+        .where(QuoteItem.quote_id == quote.id)
+        .order_by(QuoteItem.id.asc())
+    ).all()
+
+    company = db.get(Company, current_user.company_id)
+    company_dict = company.__dict__ if company else {}
+
+    quote_dict = {
+        "id": int(quote.id),
+        "series": quote.series,
+        "number": int(quote.number),
+        "status": quote.status,
+        "customer_name": quote.customer_name,
+        "customer_nuit": quote.customer_nuit,
+        "currency": quote.currency,
+        "net_total": float(quote.net_total or 0),
+        "tax_total": float(quote.tax_total or 0),
+        "gross_total": float(quote.gross_total or 0),
+        "created_at": quote.created_at.isoformat() if quote.created_at else None,
+    }
+
+    item_dicts = [
+        {
+            "product_id": int(i.product_id) if i.product_id is not None else None,
+            "product_name": i.product_name,
+            "qty": float(i.qty or 0),
+            "unit_price": float(i.unit_price or 0),
+            "line_net": float(i.line_net or 0),
+            "tax_rate": float(i.tax_rate or 0),
+            "line_tax": float(i.line_tax or 0),
+            "line_gross": float(i.line_gross or 0),
+        }
+        for i in (items or [])
+    ]
+
+    elements = quote_pdf_elements({"quote": quote_dict, "items": item_dicts}, company_dict)
+    pdf_bytes = render_pdf(f"Cotação {quote.series}/{quote.number}", elements)
+    filename = f"cotacao_{quote.series}_{quote.number}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )

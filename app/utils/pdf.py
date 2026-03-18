@@ -168,6 +168,102 @@ def daily_z_pdf_elements(data: dict, company: dict) -> list:
     return elements
 
 
+def quote_pdf_elements(data: dict, company: dict) -> list:
+    styles = getSampleStyleSheet()
+
+    quote = data.get("quote") or {}
+    items = data.get("items") or []
+    currency = (quote.get("currency") or company.get("currency") or "").strip()
+
+    series = quote.get("series") or ""
+    number = quote.get("number") or ""
+    subtitle = f"Cotação {series}/{number}".strip()
+
+    customer_name = (quote.get("customer_name") or "").strip() or "-"
+    customer_nuit = (quote.get("customer_nuit") or "").strip()
+
+    info_rows = [
+        ["Cliente:", customer_name],
+        ["NUIT:", customer_nuit or "-"],
+        ["Data:", (quote.get("created_at") or "-")[:19].replace("T", " ")],
+        ["Estado:", quote.get("status") or "-"],
+    ]
+    info_table = Table(info_rows, colWidths=[25 * mm, None])
+    info_table.setStyle(
+        TableStyle(
+            [
+                ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                ("ALIGN", (0, 0), (0, -1), "RIGHT"),
+                ("ALIGN", (1, 0), (1, -1), "LEFT"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+
+    item_rows = []
+    for idx, it in enumerate(items, start=1):
+        qty = float(it.get("qty") or 0)
+        unit_price = float(it.get("unit_price") or 0)
+        line_net = float(it.get("line_net") or 0)
+        tax_rate = float(it.get("tax_rate") or 0)
+        line_tax = float(it.get("line_tax") or 0)
+        line_gross = float(it.get("line_gross") or 0)
+        item_rows.append(
+            [
+                str(idx),
+                (it.get("product_name") or "-")[:80],
+                f"{qty:.2f}",
+                f"{unit_price:.2f}",
+                f"{tax_rate:.2f}%",
+                f"{line_gross:.2f}",
+            ]
+        )
+
+    items_table = _styled_table(
+        ["#", "Item", "Qtd", "Preço", "IVA", "Total"],
+        item_rows or [["-", "Sem itens", "", "", "", ""]],
+        col_widths=[10 * mm, None, 18 * mm, 22 * mm, 18 * mm, 24 * mm],
+        aligns=["CENTER", "LEFT", "RIGHT", "RIGHT", "RIGHT", "RIGHT"],
+    )
+
+    net_total = float(quote.get("net_total") or 0)
+    tax_total = float(quote.get("tax_total") or 0)
+    gross_total = float(quote.get("gross_total") or 0)
+
+    totals_table = Table(
+        [
+            ["Subtotal", f"{net_total:.2f} {currency}".strip()],
+            ["IVA", f"{tax_total:.2f} {currency}".strip()],
+            ["Total", f"{gross_total:.2f} {currency}".strip()],
+        ],
+        colWidths=[30 * mm, 50 * mm],
+    )
+    totals_table.setStyle(
+        TableStyle(
+            [
+                ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                ("FONTNAME", (0, 2), (-1, 2), "Helvetica-Bold"),
+                ("LINEABOVE", (0, 2), (-1, 2), 0.5, colors.black),
+            ]
+        )
+    )
+
+    elements = [
+        _header_block("Cotação", subtitle, company),
+        Spacer(0, 6 * mm),
+        info_table,
+        Spacer(0, 6 * mm),
+        items_table,
+        Spacer(0, 6 * mm),
+        totals_table,
+    ]
+    return elements
+
+
 def vat_by_rate_pdf_elements(data: dict, company: dict) -> list:
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
