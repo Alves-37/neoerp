@@ -617,8 +617,8 @@ def _pdv3_compute_monthly_copies(
 
     total_counter_type = _get_or_create_pdv3_total_counter_type(
         db,
-        company_id=int(current_user.company_id),
-        branch_id=branch_id,
+        current_user=current_user,
+        establishment_id=int(establishment_id),
     )
 
     printers = db.scalars(
