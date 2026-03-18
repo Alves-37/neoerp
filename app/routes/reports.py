@@ -36,13 +36,17 @@ def daily_z_report(
 ):
     local_day = _doc_local_day_expr()
 
+    effective_establishment_id: int | None = None
+    if getattr(current_user, "establishment_id", None) is not None:
+        effective_establishment_id = int(current_user.establishment_id)
+
     base_where = [
         FiscalDocument.company_id == current_user.company_id,
         FiscalDocument.branch_id == int(current_user.branch_id),
         local_day == day,
     ]
 
-    totals = db.execute(
+    totals_stmt = (
         select(
             func.coalesce(func.sum(FiscalDocument.net_total), 0).label("net_total"),
             func.coalesce(func.sum(FiscalDocument.tax_total), 0).label("tax_total"),
@@ -51,15 +55,25 @@ def daily_z_report(
         )
         .where(*base_where)
         .where(FiscalDocument.status == "issued")
-    ).one()
+    )
+    if effective_establishment_id is not None:
+        totals_stmt = totals_stmt.select_from(FiscalDocument).join(Sale, Sale.id == FiscalDocument.sale_id).where(
+            Sale.establishment_id == effective_establishment_id
+        )
+    totals = db.execute(totals_stmt).one()
 
-    cancelled = db.execute(
+    cancelled_stmt = (
         select(func.coalesce(func.count(FiscalDocument.id), 0).label("cancelled_count"))
         .where(*base_where)
         .where(FiscalDocument.status == "cancelled")
-    ).one()
+    )
+    if effective_establishment_id is not None:
+        cancelled_stmt = cancelled_stmt.select_from(FiscalDocument).join(Sale, Sale.id == FiscalDocument.sale_id).where(
+            Sale.establishment_id == effective_establishment_id
+        )
+    cancelled = db.execute(cancelled_stmt).one()
 
-    by_type_rows = db.execute(
+    by_type_stmt = (
         select(
             FiscalDocument.document_type,
             func.coalesce(func.count(FiscalDocument.id), 0).label("count"),
@@ -69,9 +83,14 @@ def daily_z_report(
         .where(FiscalDocument.status == "issued")
         .group_by(FiscalDocument.document_type)
         .order_by(FiscalDocument.document_type.asc())
-    ).all()
+    )
+    if effective_establishment_id is not None:
+        by_type_stmt = by_type_stmt.select_from(FiscalDocument).join(Sale, Sale.id == FiscalDocument.sale_id).where(
+            Sale.establishment_id == effective_establishment_id
+        )
+    by_type_rows = db.execute(by_type_stmt).all()
 
-    vat_rows = db.execute(
+    vat_stmt = (
         select(
             FiscalDocumentLine.tax_rate,
             func.coalesce(func.sum(FiscalDocumentLine.line_net), 0).label("net_total"),
@@ -85,7 +104,10 @@ def daily_z_report(
         .where(FiscalDocument.status == "issued")
         .group_by(FiscalDocumentLine.tax_rate)
         .order_by(FiscalDocumentLine.tax_rate.asc())
-    ).all()
+    )
+    if effective_establishment_id is not None:
+        vat_stmt = vat_stmt.join(Sale, Sale.id == FiscalDocument.sale_id).where(Sale.establishment_id == effective_establishment_id)
+    vat_rows = db.execute(vat_stmt).all()
 
     return {
         "day": str(day),
@@ -205,6 +227,9 @@ def sales_by_period(
 ):
     local_day = _sale_local_day_expr()
     paid_statuses = ["paid", "completed", "closed"]
+    effective_establishment_id: int | None = None
+    if getattr(current_user, "establishment_id", None) is not None:
+        effective_establishment_id = int(current_user.establishment_id)
     base_where = [
         Sale.company_id == current_user.company_id,
         Sale.branch_id == int(current_user.branch_id),
@@ -212,6 +237,8 @@ def sales_by_period(
         local_day >= start_day,
         local_day <= end_day,
     ]
+    if effective_establishment_id is not None:
+        base_where.append(Sale.establishment_id == effective_establishment_id)
 
     sales_rows = db.execute(
         select(
@@ -287,6 +314,9 @@ def cash_closure(
 ):
     local_day = _sale_local_day_expr()
     paid_statuses = ["paid", "completed", "closed"]
+    effective_establishment_id: int | None = None
+    if getattr(current_user, "establishment_id", None) is not None:
+        effective_establishment_id = int(current_user.establishment_id)
     base_where = [
         Sale.company_id == current_user.company_id,
         Sale.branch_id == int(current_user.branch_id),
@@ -294,6 +324,8 @@ def cash_closure(
         Sale.status.in_(paid_statuses),
         local_day == day,
     ]
+    if effective_establishment_id is not None:
+        base_where.append(Sale.establishment_id == effective_establishment_id)
 
     sales_rows = db.execute(
         select(
