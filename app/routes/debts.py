@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database.connection import get_db
 from app.deps import get_current_user
 from app.models.branch import Branch
+from app.models.cash_session import CashSession
 from app.models.customer import Customer
 from app.models.debt import Debt
 from app.models.debt_item import DebtItem
@@ -161,6 +162,9 @@ def create_debt(
         customer_name = (payload.customer_name or "").strip() or None
         customer_nuit = (payload.customer_nuit or "").strip() or None
 
+    if not customer_id and not customer_name:
+        raise HTTPException(status_code=400, detail="Informe o cliente para registrar a dívida")
+
     net_total = 0.0
     tax_total = 0.0
     items_to_create: list[DebtItem] = []
@@ -258,6 +262,25 @@ def pay_debt(
     if (debt.status or "open") != "open":
         raise HTTPException(status_code=400, detail="Dívida já foi processada")
 
+    if not getattr(current_user, "establishment_id", None):
+        raise HTTPException(status_code=400, detail="Ponto inválido")
+
+    if not getattr(debt, "customer_id", None) and not (getattr(debt, "customer_name", None) or "").strip():
+        raise HTTPException(status_code=400, detail="Dívida sem cliente. Informe o cliente antes de pagar")
+
+    cash_session = db.scalar(
+        select(CashSession)
+        .where(CashSession.company_id == current_user.company_id)
+        .where(CashSession.branch_id == int(current_user.branch_id))
+        .where(CashSession.establishment_id == int(current_user.establishment_id))
+        .where(CashSession.opened_by == current_user.id)
+        .where(CashSession.status == "open")
+        .order_by(CashSession.id.desc())
+        .limit(1)
+    )
+    if not cash_session:
+        raise HTTPException(status_code=409, detail="Caixa fechado. Abra o caixa para registrar pagamentos de dívida")
+
     items = db.scalars(
         select(DebtItem)
         .where(DebtItem.company_id == current_user.company_id)
@@ -305,7 +328,9 @@ def pay_debt(
     sale = Sale(
         company_id=current_user.company_id,
         branch_id=int(current_user.branch_id),
+        establishment_id=int(current_user.establishment_id),
         cashier_id=current_user.id,
+        cash_session_id=int(cash_session.id),
         business_type=business_type,
         total=float(getattr(debt, "total", 0) or 0),
         net_total=float(getattr(debt, "net_total", 0) or 0),
@@ -315,7 +340,7 @@ def pay_debt(
         change=change,
         payment_method=(payload.payment_method or "cash"),
         status="paid",
-        sale_channel="counter",
+        sale_channel="debt",
         table_number=None,
         seat_number=None,
         created_at=datetime.utcnow(),
