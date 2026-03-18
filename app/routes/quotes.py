@@ -352,8 +352,9 @@ def quote_pdf(
         for i in (items or [])
     ]
 
-    elements = quote_pdf_elements({"quote": quote_dict, "items": item_dicts}, company_dict)
-    pdf_bytes = render_pdf(f"Cotação {quote.series}/{quote.number}", elements)
+    pdf_data = {"quote": quote_dict, "items": item_dicts}
+    elements = quote_pdf_elements(pdf_data, company_dict)
+    pdf_bytes = render_pdf(f"Cotação {quote.series}/{quote.number}", elements, on_page=pdf_data.get("on_page"))
     filename = f"cotacao_{quote.series}_{quote.number}.pdf"
     return Response(
         content=pdf_bytes,

@@ -8,11 +8,14 @@ from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 
 
-def render_pdf(title: str, elements: list) -> bytes:
+def render_pdf(title: str, elements: list, on_page=None) -> bytes:
     """Render a list of Platypus elements to PDF bytes using ReportLab."""
     buffer = BytesIO()
     pdf = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=15*mm, leftMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
-    pdf.build(elements)
+    if on_page is not None:
+        pdf.build(elements, onFirstPage=on_page, onLaterPages=on_page)
+    else:
+        pdf.build(elements)
     buffer.seek(0)
     return buffer.getvalue()
 
@@ -173,94 +176,184 @@ def quote_pdf_elements(data: dict, company: dict) -> list:
 
     quote = data.get("quote") or {}
     items = data.get("items") or []
-    currency = (quote.get("currency") or company.get("currency") or "").strip()
 
-    series = quote.get("series") or ""
-    number = quote.get("number") or ""
-    subtitle = f"Cotação {series}/{number}".strip()
+    def _fmt_date(v: str | None) -> str:
+        if not v:
+            return ""
+        s = str(v)
+        if "T" in s:
+            s = s.split("T", 1)[0]
+        return s
 
-    customer_name = (quote.get("customer_name") or "").strip() or "-"
+    customer_name = (quote.get("customer_name") or "").strip()
     customer_nuit = (quote.get("customer_nuit") or "").strip()
+    created_day = _fmt_date(quote.get("created_at"))
 
-    info_rows = [
-        ["Cliente:", customer_name],
-        ["NUIT:", customer_nuit or "-"],
-        ["Data:", (quote.get("created_at") or "-")[:19].replace("T", " ")],
-        ["Estado:", quote.get("status") or "-"],
-    ]
-    info_table = Table(info_rows, colWidths=[25 * mm, None])
-    info_table.setStyle(
-        TableStyle(
-            [
-                ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-                ("FONTSIZE", (0, 0), (-1, -1), 10),
-                ("ALIGN", (0, 0), (0, -1), "RIGHT"),
-                ("ALIGN", (1, 0), (1, -1), "LEFT"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ]
-        )
+    title_style = ParagraphStyle(
+        "QuoteTitle",
+        parent=styles["Normal"],
+        fontSize=28,
+        leading=30,
+        textColor=colors.HexColor("#0b2a3b"),
+        spaceAfter=6 * mm,
+    )
+    label_style = ParagraphStyle(
+        "QuoteLabel",
+        parent=styles["Normal"],
+        fontSize=10,
+        leading=12,
+        textColor=colors.HexColor("#0b2a3b"),
     )
 
-    item_rows = []
-    for idx, it in enumerate(items, start=1):
-        qty = float(it.get("qty") or 0)
-        unit_price = float(it.get("unit_price") or 0)
-        line_net = float(it.get("line_net") or 0)
-        tax_rate = float(it.get("tax_rate") or 0)
-        line_tax = float(it.get("line_tax") or 0)
-        line_gross = float(it.get("line_gross") or 0)
-        item_rows.append(
-            [
-                str(idx),
-                (it.get("product_name") or "-")[:80],
-                f"{qty:.2f}",
-                f"{unit_price:.2f}",
-                f"{tax_rate:.2f}%",
-                f"{line_gross:.2f}",
-            ]
-        )
-
-    items_table = _styled_table(
-        ["#", "Item", "Qtd", "Preço", "IVA", "Total"],
-        item_rows or [["-", "Sem itens", "", "", "", ""]],
-        col_widths=[10 * mm, None, 18 * mm, 22 * mm, 18 * mm, 24 * mm],
-        aligns=["CENTER", "LEFT", "RIGHT", "RIGHT", "RIGHT", "RIGHT"],
-    )
-
-    net_total = float(quote.get("net_total") or 0)
-    tax_total = float(quote.get("tax_total") or 0)
-    gross_total = float(quote.get("gross_total") or 0)
-
-    totals_table = Table(
+    top_row = Table(
         [
-            ["Subtotal", f"{net_total:.2f} {currency}".strip()],
-            ["IVA", f"{tax_total:.2f} {currency}".strip()],
-            ["Total", f"{gross_total:.2f} {currency}".strip()],
+            [
+                Paragraph("<b>ORÇAMENTO</b>", title_style),
+                Table(
+                    [[Paragraph("<b>DATA:</b>", label_style), ""]],
+                    colWidths=[18 * mm, 55 * mm],
+                ),
+            ]
         ],
-        colWidths=[30 * mm, 50 * mm],
+        colWidths=[None, 90 * mm],
     )
-    totals_table.setStyle(
+    top_row.setStyle(
         TableStyle(
             [
-                ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-                ("FONTSIZE", (0, 0), (-1, -1), 10),
-                ("ALIGN", (0, 0), (0, -1), "LEFT"),
-                ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-                ("FONTNAME", (0, 2), (-1, 2), "Helvetica-Bold"),
-                ("LINEABOVE", (0, 2), (-1, 2), 0.5, colors.black),
+                ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+                ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                ("LINEBELOW", (1, 0), (1, 0), 0.8, colors.HexColor("#0b2a3b")),
+                ("FONTSIZE", (1, 0), (1, 0), 10),
+            ]
+        )
+    )
+
+    # Fill date into the right cell while keeping the underline style.
+    top_row._cellvalues[0][1]._cellvalues[0][1] = Paragraph(created_day or "", label_style)
+
+    def _field_row(label: str, value: str = ""):
+        t = Table([[Paragraph(f"<b>{label}</b>", label_style), Paragraph(value or "", label_style)]], colWidths=[28 * mm, None])
+        t.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LINEBELOW", (1, 0), (1, 0), 0.8, colors.HexColor("#0b2a3b")),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ]
+            )
+        )
+        return t
+
+    fields = [
+        _field_row("Cliente:", customer_name),
+        _field_row("CNPJ:", customer_nuit),
+        _field_row("Endereço:", ""),
+        _field_row("Cidade:", ""),
+        _field_row("Telefone:", ""),
+        _field_row("E-mail:", ""),
+    ]
+
+    # Items table: fixed number of rows to match template.
+    fixed_rows = 12
+    rows = []
+    for it in items[:fixed_rows]:
+        desc = (it.get("product_name") or "").strip()
+        qty = float(it.get("qty") or 0)
+        total = float(it.get("line_gross") or 0)
+        rows.append([desc, f"{qty:.2f}" if qty else "", f"{total:.2f}" if total else ""])
+    while len(rows) < fixed_rows:
+        rows.append(["", "", ""])
+
+    table = Table(
+        [["DESCRIÇÃO", "QUANTIDADE", "VALOR"]] + rows,
+        colWidths=[None, 45 * mm, 30 * mm],
+        rowHeights=[12 * mm] + [9 * mm] * fixed_rows,
+        repeatRows=1,
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, 0), 10),
+                ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e6e7e6")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#0b2a3b")),
+                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 1), (-1, -1), 10),
+                ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#0b2a3b")),
+                ("ALIGN", (0, 1), (0, -1), "LEFT"),
+                ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+                ("GRID", (0, 0), (-1, -1), 0.8, colors.HexColor("#0b2a3b")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
             ]
         )
     )
 
     elements = [
-        _header_block("Cotação", subtitle, company),
         Spacer(0, 6 * mm),
-        info_table,
+        top_row,
         Spacer(0, 6 * mm),
-        items_table,
-        Spacer(0, 6 * mm),
-        totals_table,
+        *fields,
+        Spacer(0, 10 * mm),
+        table,
+        Spacer(0, 18 * mm),
     ]
+
+    def on_page(canvas, doc):
+        width, height = A4
+
+        # Top waves (approximation)
+        canvas.saveState()
+        canvas.setFillColor(colors.HexColor("#7fb3c9"))
+        canvas.setStrokeColor(colors.HexColor("#7fb3c9"))
+        canvas.moveTo(0, height)
+        canvas.curveTo(width * 0.25, height - 18 * mm, width * 0.55, height - 4 * mm, width, height - 20 * mm)
+        canvas.lineTo(width, height)
+        canvas.closePath()
+        canvas.fill()
+
+        canvas.setFillColor(colors.HexColor("#0b4a73"))
+        canvas.setStrokeColor(colors.HexColor("#0b4a73"))
+        canvas.moveTo(0, height)
+        canvas.curveTo(width * 0.25, height - 10 * mm, width * 0.55, height + 2 * mm, width, height - 10 * mm)
+        canvas.lineTo(width, height)
+        canvas.closePath()
+        canvas.fill()
+        canvas.restoreState()
+
+        # Footer
+        phone = (company.get("phone") or "").strip()
+        email = (company.get("email") or "").strip()
+        address = (company.get("address") or "").strip()
+        city = (company.get("city") or "").strip()
+
+        left_lines = []
+        if phone:
+            left_lines.append(phone)
+        if email:
+            left_lines.append(email)
+        if address or city:
+            left_lines.append(" · ".join([x for x in [address, city] if x]))
+
+        canvas.saveState()
+        canvas.setFillColor(colors.HexColor("#0b2a3b"))
+        canvas.setFont("Helvetica", 9)
+        y = 18 * mm
+        for line in left_lines[:3]:
+            canvas.drawString(15 * mm, y, line)
+            y -= 4.5 * mm
+
+        # Bottom-right brand text
+        brand = (company.get("name") or "").strip()
+        if brand:
+            canvas.setFont("Helvetica-Bold", 16)
+            canvas.drawRightString(width - 15 * mm, 14 * mm, brand[:24])
+        canvas.restoreState()
+
+    data["on_page"] = on_page
     return elements
 
 
