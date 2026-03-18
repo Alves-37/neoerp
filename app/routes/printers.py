@@ -14,6 +14,8 @@ from app.models.branch import Branch
 from app.models.cash_session import CashSession
 from app.models.printer import Printer, PrinterBillingRegistry, PrinterContract, PrinterCounterType, PrinterReading
 from app.models.product import Product
+from app.models.product_category import ProductCategory
+from app.models.product_stock import ProductStock
 from app.models.sale import Sale
 from app.models.sale_item import SaleItem
 from app.models.stock_location import StockLocation
@@ -165,6 +167,24 @@ def _get_or_create_pdv3_print_service_product(
     business_type: str,
 ) -> Product:
     # PDV3 uses a single service product: SERVICO_IMPRESSAO
+    # In PDV3, services are grouped under category "Serviços".
+    category = db.scalar(
+        select(ProductCategory)
+        .where(ProductCategory.company_id == int(company_id))
+        .where(ProductCategory.business_type == (business_type or "reprography"))
+        .where(func.lower(func.coalesce(ProductCategory.name, "")) == "serviços")
+        .limit(1)
+    )
+    if not category:
+        category = ProductCategory(
+            company_id=int(company_id),
+            business_type=(business_type or "reprography"),
+            name="Serviços",
+        )
+        db.add(category)
+        db.commit()
+        db.refresh(category)
+
     existing = db.scalar(
         select(Product)
         .where(Product.company_id == company_id)
@@ -182,7 +202,7 @@ def _get_or_create_pdv3_print_service_product(
         company_id=company_id,
         branch_id=int(branch_id),
         establishment_id=int(establishment_id),
-        category_id=None,
+        category_id=int(category.id),
         supplier_id=None,
         default_location_id=int(default_location_id),
         business_type=business_type,
