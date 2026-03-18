@@ -12,7 +12,7 @@ from app.database.connection import get_db
 from app.deps import get_current_user
 from app.models.branch import Branch
 from app.models.cash_session import CashSession
-from app.models.printer import Printer, PrinterContract, PrinterCounterType, PrinterReading
+from app.models.printer import Printer, PrinterBillingRegistry, PrinterContract, PrinterCounterType, PrinterReading
 from app.models.product import Product
 from app.models.sale import Sale
 from app.models.sale_item import SaleItem
@@ -32,6 +32,11 @@ from app.schemas.printers import (
     PrinterCounterTypeUpdate,
     PrinterCreate,
     PrinterOut,
+    PrinterPdv3BillingOut,
+    PrinterPdv3BillingRowOut,
+    PrinterPdv3GenerateLaunchOut,
+    PrinterPdv3GenerateLaunchPayload,
+    PrinterPdv3ReadingCreate,
     PrinterReadingCreate,
     PrinterReadingOut,
     PrinterUpdate,
@@ -119,6 +124,88 @@ def _get_or_create_excess_service_product(
     return row
 
 
+def _get_or_create_pdv3_total_counter_type(
+    db: Session,
+    *,
+    current_user: User,
+    establishment_id: int,
+) -> PrinterCounterType:
+    # PDV3 uses a single counter. We emulate it with a fixed counter type.
+    row = db.scalar(
+        select(PrinterCounterType)
+        .where(PrinterCounterType.company_id == current_user.company_id)
+        .where(PrinterCounterType.branch_id == int(current_user.branch_id))
+        .where(PrinterCounterType.establishment_id == int(establishment_id))
+        .where(func.upper(PrinterCounterType.code) == 'TOTAL')
+        .limit(1)
+    )
+    if row:
+        return row
+
+    row = PrinterCounterType(
+        company_id=current_user.company_id,
+        branch_id=int(current_user.branch_id),
+        establishment_id=int(establishment_id),
+        code='TOTAL',
+        name='Total',
+        is_active=True,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def _get_or_create_pdv3_print_service_product(
+    db: Session,
+    *,
+    company_id: int,
+    branch_id: int,
+    establishment_id: int,
+    business_type: str,
+) -> Product:
+    # PDV3 uses a single service product: SERVICO_IMPRESSAO
+    existing = db.scalar(
+        select(Product)
+        .where(Product.company_id == company_id)
+        .where(Product.branch_id == int(branch_id))
+        .where(Product.establishment_id == int(establishment_id))
+        .where(func.upper(func.coalesce(Product.sku, '')) == 'SERVICO_IMPRESSAO')
+        .where(Product.is_service.is_(True))
+        .limit(1)
+    )
+    if existing:
+        return existing
+
+    default_location_id = _get_default_location_id(db, company_id=company_id, branch_id=branch_id)
+    row = Product(
+        company_id=company_id,
+        branch_id=int(branch_id),
+        establishment_id=int(establishment_id),
+        category_id=None,
+        supplier_id=None,
+        default_location_id=int(default_location_id),
+        business_type=business_type,
+        name='Serviço de Impressão',
+        sku='SERVICO_IMPRESSAO',
+        barcode=None,
+        unit='serv',
+        price=0,
+        cost=0,
+        tax_rate=0,
+        min_stock=0,
+        track_stock=False,
+        is_service=True,
+        is_active=True,
+        show_in_menu=False,
+        attributes={},
+    )
+    db.add(row)
+    db.flush()
+    db.refresh(row)
+    return row
+
+
 def _compute_monthly_billing(
     db: Session,
     *,
@@ -129,6 +216,12 @@ def _compute_monthly_billing(
 ) -> PrinterBillingOut:
     start_dt, end_dt = _month_window(year, month)
     branch_id = int(current_user.branch_id)
+
+    total_counter_type = _get_or_create_pdv3_total_counter_type(
+        db,
+        current_user=current_user,
+        establishment_id=int(establishment_id),
+    )
 
     printers = db.scalars(
         select(Printer)
@@ -332,7 +425,7 @@ def create_printer(
     _ensure_reprography_branch(db, current_user)
     _ensure_admin(current_user)
 
-    serial = (payload.serial_number or "").strip()
+    serial = (payload.serial_number or "").strip().upper()
     if not serial:
         raise HTTPException(status_code=400, detail="Número de série inválido")
 
@@ -345,6 +438,8 @@ def create_printer(
         serial_number=serial,
         brand=(payload.brand or "").strip() or None,
         model=(payload.model or "").strip() or None,
+        initial_counter=int(getattr(payload, "initial_counter", 0) or 0),
+        installation_date=payload.installation_date or datetime.utcnow().date(),
         is_active=bool(payload.is_active),
     )
     db.add(row)
@@ -460,7 +555,7 @@ def update_printer(
     data = payload.model_dump(exclude_unset=True)
 
     if "serial_number" in data and data["serial_number"] is not None:
-        serial = (data["serial_number"] or "").strip()
+        serial = (data["serial_number"] or "").strip().upper()
         if not serial:
             raise HTTPException(status_code=400, detail="Número de série inválido")
         row.serial_number = serial
@@ -469,6 +564,10 @@ def update_printer(
         row.brand = (data.get("brand") or "").strip() or None
     if "model" in data:
         row.model = (data.get("model") or "").strip() or None
+    if "initial_counter" in data and data["initial_counter"] is not None:
+        row.initial_counter = int(data["initial_counter"] or 0)
+    if "installation_date" in data and data["installation_date"] is not None:
+        row.installation_date = data["installation_date"]
     if "is_active" in data and data["is_active"] is not None:
         row.is_active = bool(data["is_active"])
 
@@ -494,27 +593,355 @@ def delete_printer(
     if not row or row.company_id != current_user.company_id:
         raise HTTPException(status_code=404, detail="Impressora não encontrada")
 
-    in_contract = db.scalar(
-        select(PrinterContract.id)
-        .where(PrinterContract.company_id == current_user.company_id)
-        .where(PrinterContract.printer_id == row.id)
-        .limit(1)
-    )
-    if in_contract:
-        raise HTTPException(status_code=409, detail="Impressora possui contratos")
-
-    in_reading = db.scalar(
-        select(PrinterReading.id)
-        .where(PrinterReading.company_id == current_user.company_id)
-        .where(PrinterReading.printer_id == row.id)
-        .limit(1)
-    )
-    if in_reading:
-        raise HTTPException(status_code=409, detail="Impressora possui leituras")
-
-    db.delete(row)
+    # PDV3 behavior: do not delete; just inactivate
+    row.is_active = False
+    db.add(row)
     db.commit()
     return {"ok": True}
+
+
+def _pdv3_month_label(year: int, month: int) -> str:
+    return f"{str(int(month)).zfill(2)}/{int(year)}"
+
+
+def _pdv3_compute_monthly_copies(
+    db: Session,
+    *,
+    current_user: User,
+    establishment_id: int,
+    year: int,
+    month: int,
+) -> list[PrinterPdv3BillingRowOut]:
+    start_dt, end_dt = _month_window(year, month)
+    branch_id = int(current_user.branch_id)
+
+    printers = db.scalars(
+        select(Printer)
+        .where(Printer.company_id == current_user.company_id)
+        .where(Printer.branch_id == branch_id)
+        .where(Printer.establishment_id == int(establishment_id))
+        .where(Printer.is_active.is_(True))
+        .order_by(Printer.serial_number.asc(), Printer.id.asc())
+    ).all()
+
+    month_year = _pdv3_month_label(year, month)
+
+    # Load registry in one query
+    reg_rows = db.scalars(
+        select(PrinterBillingRegistry)
+        .where(PrinterBillingRegistry.company_id == current_user.company_id)
+        .where(PrinterBillingRegistry.branch_id == branch_id)
+        .where(PrinterBillingRegistry.establishment_id == int(establishment_id))
+        .where(PrinterBillingRegistry.year == int(year))
+        .where(PrinterBillingRegistry.month == int(month))
+    ).all()
+    billed_to_by_printer = {int(r.printer_id): int(r.copies_to or 0) for r in reg_rows}
+
+    out: list[PrinterPdv3BillingRowOut] = []
+    for p in printers:
+        pid = int(p.id)
+
+        start_reading = db.scalar(
+            select(PrinterReading)
+            .where(PrinterReading.company_id == current_user.company_id)
+            .where(PrinterReading.branch_id == branch_id)
+            .where(PrinterReading.establishment_id == int(establishment_id))
+            .where(PrinterReading.printer_id == pid)
+            .where(PrinterReading.counter_type_id == int(total_counter_type.id))
+            .where(PrinterReading.reading_date < start_dt)
+            .order_by(PrinterReading.reading_date.desc(), PrinterReading.id.desc())
+            .limit(1)
+        )
+        start_value = int(start_reading.counter_value) if start_reading else int(getattr(p, 'initial_counter', 0) or 0)
+
+        end_reading = db.scalar(
+            select(PrinterReading)
+            .where(PrinterReading.company_id == current_user.company_id)
+            .where(PrinterReading.branch_id == branch_id)
+            .where(PrinterReading.establishment_id == int(establishment_id))
+            .where(PrinterReading.printer_id == pid)
+            .where(PrinterReading.counter_type_id == int(total_counter_type.id))
+            .where(PrinterReading.reading_date <= end_dt)
+            .order_by(PrinterReading.reading_date.desc(), PrinterReading.id.desc())
+            .limit(1)
+        )
+        end_value = int(end_reading.counter_value) if end_reading else int(start_value)
+
+        copies_total = max(0, int(end_value) - int(start_value))
+        billed_to = int(billed_to_by_printer.get(pid, 0) or 0)
+        copies_new = max(0, int(copies_total) - int(billed_to))
+
+        out.append(
+            PrinterPdv3BillingRowOut(
+                printer_id=pid,
+                serial_number=p.serial_number,
+                brand=p.brand,
+                model=p.model,
+                month=int(month),
+                year=int(year),
+                month_year=month_year,
+                copies_total=int(copies_total),
+                copies_billed_to=int(billed_to),
+                copies_new=int(copies_new),
+                has_launch=bool(copies_new <= 0 and copies_total > 0),
+            )
+        )
+
+    return out
+
+
+@router.get("/pdv3/billing", response_model=PrinterPdv3BillingOut)
+def get_pdv3_monthly_billing(
+    year: int,
+    month: int,
+    establishment_id: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_reprography_branch(db, current_user)
+    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=establishment_id)
+
+    rows = _pdv3_compute_monthly_copies(db, current_user=current_user, establishment_id=est_id, year=int(year), month=int(month))
+    total_copies = sum(int(r.copies_total or 0) for r in rows)
+
+    return PrinterPdv3BillingOut(
+        month=int(month),
+        year=int(year),
+        company_id=int(current_user.company_id),
+        branch_id=int(current_user.branch_id),
+        establishment_id=int(est_id),
+        rows=rows,
+        total_copies=int(total_copies),
+        total_printers=int(len(rows)),
+    )
+
+
+@router.post("/pdv3/billing/generate-launch", response_model=PrinterPdv3GenerateLaunchOut)
+def generate_pdv3_billing_launch(
+    payload: PrinterPdv3GenerateLaunchPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_reprography_branch(db, current_user)
+
+    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=payload.establishment_id)
+
+    # Ensure cash session open (ERP invariant)
+    cash_session = db.scalar(
+        select(CashSession)
+        .where(CashSession.company_id == current_user.company_id)
+        .where(CashSession.branch_id == int(current_user.branch_id))
+        .where(CashSession.establishment_id == int(est_id))
+        .where(CashSession.opened_by == current_user.id)
+        .where(CashSession.status == "open")
+        .order_by(CashSession.id.desc())
+        .limit(1)
+    )
+    if not cash_session:
+        raise HTTPException(status_code=409, detail="Caixa fechado. Abra o caixa para gerar o lançamento")
+
+    # Compute copies for this printer
+    computed = _pdv3_compute_monthly_copies(
+        db,
+        current_user=current_user,
+        establishment_id=int(est_id),
+        year=int(payload.year),
+        month=int(payload.month),
+    )
+    row = next((r for r in computed if int(r.printer_id) == int(payload.printer_id)), None)
+    if not row:
+        raise HTTPException(status_code=404, detail="Impressora não encontrada")
+
+    if int(row.copies_new or 0) <= 0:
+        raise HTTPException(status_code=400, detail="Nada novo para faturar")
+
+    price = float(payload.price_per_copy or 0)
+    cost = float(payload.cost_per_copy or 0)
+    if price < 0 or cost < 0:
+        raise HTTPException(status_code=400, detail="Valores inválidos")
+
+    total = round(float(row.copies_new) * price, 2)
+    cost_total = round(float(row.copies_new) * cost, 2)
+
+    branch = db.get(Branch, int(current_user.branch_id))
+    business_type = (branch.business_type or "reprography").strip().lower() if branch else "reprography"
+    if business_type == "reprografia":
+        business_type = "reprography"
+
+    product = _get_or_create_pdv3_print_service_product(
+        db,
+        company_id=current_user.company_id,
+        branch_id=int(current_user.branch_id),
+        establishment_id=int(est_id),
+        business_type=business_type,
+    )
+
+    sale = Sale(
+        company_id=current_user.company_id,
+        branch_id=int(current_user.branch_id),
+        establishment_id=int(est_id),
+        cashier_id=current_user.id,
+        cash_session_id=int(cash_session.id),
+        business_type=business_type,
+        total=float(total),
+        net_total=float(total),
+        tax_total=0.0,
+        include_tax=False,
+        paid=float(total),
+        change=0.0,
+        payment_method="internal",
+        status="paid",
+        sale_channel="counter",
+        table_number=None,
+        seat_number=None,
+        created_at=datetime.utcnow(),
+    )
+    db.add(sale)
+    db.flush()
+
+    db.add(
+        SaleItem(
+            company_id=current_user.company_id,
+            branch_id=int(current_user.branch_id),
+            sale_id=int(sale.id),
+            product_id=int(product.id),
+            qty=1.0,
+            price_at_sale=float(total),
+            cost_at_sale=float(cost_total),
+            line_total=float(total),
+        )
+    )
+
+    # Upsert registry
+    reg = db.scalar(
+        select(PrinterBillingRegistry)
+        .where(PrinterBillingRegistry.company_id == current_user.company_id)
+        .where(PrinterBillingRegistry.branch_id == int(current_user.branch_id))
+        .where(PrinterBillingRegistry.establishment_id == int(est_id))
+        .where(PrinterBillingRegistry.printer_id == int(payload.printer_id))
+        .where(PrinterBillingRegistry.year == int(payload.year))
+        .where(PrinterBillingRegistry.month == int(payload.month))
+        .limit(1)
+    )
+    new_copies_to = int(row.copies_billed_to or 0) + int(row.copies_new or 0)
+    if reg:
+        reg.copies_to = int(new_copies_to)
+        db.add(reg)
+    else:
+        db.add(
+            PrinterBillingRegistry(
+                company_id=current_user.company_id,
+                branch_id=int(current_user.branch_id),
+                establishment_id=int(est_id),
+                printer_id=int(payload.printer_id),
+                year=int(payload.year),
+                month=int(payload.month),
+                copies_to=int(new_copies_to),
+            )
+        )
+
+    db.commit()
+    db.refresh(sale)
+
+    return PrinterPdv3GenerateLaunchOut(
+        ok=True,
+        sale_id=int(sale.id),
+        total=float(total),
+        copies_new=int(row.copies_new or 0),
+        copies_billed_to=int(new_copies_to),
+    )
+
+
+@router.get("/pdv3/readings", response_model=list[PrinterReadingOut])
+def list_pdv3_readings(
+    establishment_id: int | None = None,
+    printer_id: int | None = None,
+    limit: int = 200,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_reprography_branch(db, current_user)
+    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=establishment_id)
+
+    total_counter_type = _get_or_create_pdv3_total_counter_type(
+        db,
+        current_user=current_user,
+        establishment_id=int(est_id),
+    )
+
+    stmt = (
+        select(PrinterReading)
+        .where(PrinterReading.company_id == current_user.company_id)
+        .where(PrinterReading.branch_id == int(current_user.branch_id))
+        .where(PrinterReading.establishment_id == int(est_id))
+        .where(PrinterReading.counter_type_id == int(total_counter_type.id))
+    )
+    if printer_id is not None:
+        stmt = stmt.where(PrinterReading.printer_id == int(printer_id))
+
+    rows = db.scalars(
+        stmt.order_by(PrinterReading.reading_date.desc(), PrinterReading.id.desc()).limit(int(limit or 200)).offset(int(offset or 0))
+    ).all()
+    return rows
+
+
+@router.post("/pdv3/readings", response_model=PrinterReadingOut)
+def create_pdv3_reading(
+    payload: PrinterPdv3ReadingCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_reprography_branch(db, current_user)
+
+    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=payload.establishment_id)
+    total_counter_type = _get_or_create_pdv3_total_counter_type(
+        db,
+        current_user=current_user,
+        establishment_id=int(est_id),
+    )
+
+    # Reuse existing create_reading validations by calling logic inline
+    printer = db.get(Printer, int(payload.printer_id))
+    if not printer or printer.company_id != current_user.company_id:
+        raise HTTPException(status_code=404, detail="Impressora não encontrada")
+    if printer.branch_id != int(current_user.branch_id) or printer.establishment_id != est_id:
+        raise HTTPException(status_code=400, detail="Impressora não pertence ao ponto")
+
+    if payload.counter_value < 0:
+        raise HTTPException(status_code=400, detail="Contador inválido")
+
+    last_counter = db.scalar(
+        select(PrinterReading.counter_value)
+        .where(PrinterReading.company_id == current_user.company_id)
+        .where(PrinterReading.branch_id == int(current_user.branch_id))
+        .where(PrinterReading.establishment_id == est_id)
+        .where(PrinterReading.printer_id == int(payload.printer_id))
+        .where(PrinterReading.counter_type_id == int(total_counter_type.id))
+        .order_by(PrinterReading.reading_date.desc(), PrinterReading.id.desc())
+        .limit(1)
+    )
+    if last_counter is not None and int(payload.counter_value) < int(last_counter):
+        raise HTTPException(status_code=400, detail="Contador atual não pode ser menor que o anterior")
+
+    row = PrinterReading(
+        company_id=current_user.company_id,
+        branch_id=int(current_user.branch_id),
+        establishment_id=est_id,
+        printer_id=int(payload.printer_id),
+        counter_type_id=int(total_counter_type.id),
+        reading_date=payload.reading_date,
+        counter_value=int(payload.counter_value),
+    )
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Já existe uma leitura para este dia")
+
+    db.refresh(row)
+    return row
 
 
 @router.get("/counter-types", response_model=list[PrinterCounterTypeOut])

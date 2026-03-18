@@ -746,6 +746,8 @@ def main():
                     serial_number VARCHAR(120) NOT NULL,
                     brand VARCHAR(120) NULL,
                     model VARCHAR(120) NULL,
+                    initial_counter INTEGER NOT NULL DEFAULT 0,
+                    installation_date DATE NOT NULL DEFAULT CURRENT_DATE,
                     is_active BOOLEAN NOT NULL DEFAULT TRUE,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -760,6 +762,8 @@ def main():
         db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS serial_number VARCHAR(120)"))
         db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS brand VARCHAR(120) NULL"))
         db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS model VARCHAR(120) NULL"))
+        db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS initial_counter INTEGER NOT NULL DEFAULT 0"))
+        db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS installation_date DATE NOT NULL DEFAULT CURRENT_DATE"))
         db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"))
         db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()"))
         db.execute(text("ALTER TABLE printers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()"))
@@ -767,7 +771,43 @@ def main():
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_printers_branch_id ON printers(branch_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_printers_establishment_id ON printers(establishment_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_printers_serial_number ON printers(serial_number)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printers_installation_date ON printers(installation_date)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_printers_is_active ON printers(is_active)"))
+
+        # reprography: billing registry (PDV3 faturamentos_reg equivalent)
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS printer_billing_registry (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL REFERENCES companies(id),
+                    branch_id INTEGER NOT NULL REFERENCES branches(id),
+                    establishment_id INTEGER NOT NULL REFERENCES establishments(id),
+                    printer_id INTEGER NOT NULL REFERENCES printers(id),
+                    year INTEGER NOT NULL,
+                    month INTEGER NOT NULL,
+                    copies_to INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    CONSTRAINT uq_printer_billing_registry_scope_unique UNIQUE(company_id, branch_id, establishment_id, printer_id, year, month)
+                );
+                """
+            )
+        )
+        db.execute(text("ALTER TABLE printer_billing_registry ADD COLUMN IF NOT EXISTS company_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_billing_registry ADD COLUMN IF NOT EXISTS branch_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_billing_registry ADD COLUMN IF NOT EXISTS establishment_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_billing_registry ADD COLUMN IF NOT EXISTS printer_id INTEGER"))
+        db.execute(text("ALTER TABLE printer_billing_registry ADD COLUMN IF NOT EXISTS year INTEGER"))
+        db.execute(text("ALTER TABLE printer_billing_registry ADD COLUMN IF NOT EXISTS month INTEGER"))
+        db.execute(text("ALTER TABLE printer_billing_registry ADD COLUMN IF NOT EXISTS copies_to INTEGER NOT NULL DEFAULT 0"))
+        db.execute(text("ALTER TABLE printer_billing_registry ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()"))
+        db.execute(text("ALTER TABLE printer_billing_registry ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_billing_registry_company_id ON printer_billing_registry(company_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_billing_registry_branch_id ON printer_billing_registry(branch_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_billing_registry_establishment_id ON printer_billing_registry(establishment_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_billing_registry_printer_id ON printer_billing_registry(printer_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_billing_registry_year_month ON printer_billing_registry(year, month)"))
 
         # reprography: printer counter types
         db.execute(

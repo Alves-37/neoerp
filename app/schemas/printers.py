@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -7,6 +7,8 @@ class PrinterBase(BaseModel):
     serial_number: str
     brand: str | None = None
     model: str | None = None
+    initial_counter: int = 0
+    installation_date: date | None = None
     is_active: bool = True
 
 
@@ -18,6 +20,8 @@ class PrinterUpdate(BaseModel):
     serial_number: str | None = None
     brand: str | None = None
     model: str | None = None
+    initial_counter: int | None = None
+    installation_date: date | None = None
     is_active: bool | None = None
 
 
@@ -83,6 +87,56 @@ class PrinterBillingGenerateLaunchOut(BaseModel):
     ok: bool = True
     sale_id: int
     total: float
+
+
+# PDV3-like billing (single-counter, delta from registry)
+class PrinterPdv3BillingRowOut(BaseModel):
+    printer_id: int
+    serial_number: str
+    brand: str | None = None
+    model: str | None = None
+    month: int
+    year: int
+    month_year: str
+    copies_total: int = 0
+    copies_billed_to: int = 0
+    copies_new: int = 0
+    has_launch: bool = False
+
+
+class PrinterPdv3BillingOut(BaseModel):
+    month: int
+    year: int
+    company_id: int
+    branch_id: int
+    establishment_id: int
+    rows: list[PrinterPdv3BillingRowOut] = []
+    total_copies: int = 0
+    total_printers: int = 0
+
+
+class PrinterPdv3GenerateLaunchPayload(BaseModel):
+    printer_id: int
+    month: int
+    year: int
+    establishment_id: int | None = None
+    price_per_copy: float
+    cost_per_copy: float = 0
+
+
+class PrinterPdv3GenerateLaunchOut(BaseModel):
+    ok: bool = True
+    sale_id: int
+    total: float
+    copies_new: int
+    copies_billed_to: int
+
+
+class PrinterPdv3ReadingCreate(BaseModel):
+    printer_id: int
+    reading_date: datetime
+    counter_value: int
+    establishment_id: int | None = None
 
 
 class PrinterCounterTypeBase(BaseModel):
