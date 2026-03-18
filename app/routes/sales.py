@@ -384,6 +384,7 @@ def edit_sale(
         total=float(sale.total),
         net_total=float(getattr(sale, "net_total", 0) or 0),
         tax_total=float(getattr(sale, "tax_total", 0) or 0),
+        discount_value=float(getattr(sale, "discount_value", 0) or 0),
         include_tax=bool(getattr(sale, "include_tax", True)),
         paid=float(sale.paid),
         change=float(sale.change),
@@ -492,6 +493,7 @@ def list_sales(
                 total=float(s.total),
                 net_total=float(getattr(s, "net_total", 0) or 0),
                 tax_total=float(getattr(s, "tax_total", 0) or 0),
+                discount_value=float(getattr(s, "discount_value", 0) or 0),
                 include_tax=bool(getattr(s, "include_tax", True)),
                 paid=float(s.paid),
                 change=float(s.change),
@@ -559,6 +561,7 @@ def create_sale(
         seat_number = None
 
     include_tax = bool(getattr(payload, "include_tax", True))
+    discount_value = round(max(0.0, float(getattr(payload, "discount_value", 0) or 0)), 2)
     net_total = 0.0
     tax_total = 0.0
     items_to_create: list[SaleItem] = []
@@ -623,9 +626,10 @@ def create_sale(
         )
 
     gross_total = round(net_total + tax_total, 2)
+    payable_total = round(max(0.0, gross_total - discount_value), 2)
 
     paid = float(payload.paid or 0)
-    change = round(max(0.0, paid - gross_total), 2)
+    change = round(max(0.0, paid - payable_total), 2)
 
     sale = Sale(
         company_id=current_user.company_id,
@@ -634,9 +638,10 @@ def create_sale(
         cashier_id=current_user.id,
         cash_session_id=int(cash_session.id),
         business_type=business_type,
-        total=gross_total,
+        total=payable_total,
         net_total=net_total,
         tax_total=tax_total,
+        discount_value=discount_value,
         include_tax=include_tax,
         paid=paid,
         change=change,

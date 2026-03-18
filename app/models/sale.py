@@ -20,6 +20,7 @@ class Sale(Base):
     total: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     net_total: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     tax_total: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    discount_value: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     include_tax: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     paid: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     change: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)

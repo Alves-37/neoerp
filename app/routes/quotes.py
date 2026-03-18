@@ -51,6 +51,8 @@ def _build_quote_out(db: Session, current_user: User, quote: Quote) -> QuoteOut:
         net_total=float(quote.net_total),
         tax_total=float(quote.tax_total),
         gross_total=float(quote.gross_total),
+        include_tax=bool(getattr(quote, "include_tax", True)),
+        discount_value=float(getattr(quote, "discount_value", 0) or 0),
         sale_id=quote.sale_id,
         created_at=quote.created_at,
         updated_at=quote.updated_at,
@@ -90,6 +92,9 @@ def create_quote(
 
     number = _next_quote_number(db, current_user.company_id, series)
 
+    include_tax = bool(getattr(payload, "include_tax", True))
+    discount_value = round(max(0.0, float(getattr(payload, "discount_value", 0) or 0)), 2)
+
     net_total = 0.0
     tax_total = 0.0
     gross_total = 0.0
@@ -106,6 +111,8 @@ def create_quote(
         net_total=0,
         tax_total=0,
         gross_total=0,
+        include_tax=include_tax,
+        discount_value=discount_value,
         sale_id=None,
     )
     db.add(quote)
@@ -121,7 +128,7 @@ def create_quote(
         qty = float(it.qty or 0)
         unit_price = float(it.unit_price or 0)
         line_net = qty * unit_price
-        line_tax = line_net * (tax_rate / 100.0)
+        line_tax = line_net * (tax_rate / 100.0) if include_tax and tax_rate > 0 else 0.0
         line_gross = line_net + line_tax
 
         net_total += line_net
@@ -144,7 +151,7 @@ def create_quote(
 
     quote.net_total = net_total
     quote.tax_total = tax_total
-    quote.gross_total = gross_total
+    quote.gross_total = max(0.0, gross_total - discount_value)
 
     db.commit()
     db.refresh(quote)
@@ -177,6 +184,11 @@ def update_quote(
     if "currency" in data and data["currency"] is not None:
         quote.currency = data["currency"] or "MZN"
 
+    if "include_tax" in data and data["include_tax"] is not None:
+        quote.include_tax = bool(data["include_tax"])
+    if "discount_value" in data and data["discount_value"] is not None:
+        quote.discount_value = round(max(0.0, float(data["discount_value"] or 0)), 2)
+
     if "items" in data and data["items"] is not None:
         items_in = data["items"]
         if not items_in:
@@ -189,6 +201,7 @@ def update_quote(
         tax_total = 0.0
         gross_total = 0.0
 
+        include_tax = bool(getattr(quote, "include_tax", True))
         for it in items_in:
             tax_rate = 0.0
             if it.get("product_id"):
@@ -199,7 +212,7 @@ def update_quote(
             qty = float(it.get("qty", 0))
             unit_price = float(it.get("unit_price", 0))
             line_net = qty * unit_price
-            line_tax = line_net * (tax_rate / 100.0)
+            line_tax = line_net * (tax_rate / 100.0) if include_tax and tax_rate > 0 else 0.0
             line_gross = line_net + line_tax
 
             net_total += line_net
@@ -220,9 +233,10 @@ def update_quote(
             )
             db.add(row)
 
+        discount_value = float(getattr(quote, "discount_value", 0) or 0)
         quote.net_total = net_total
         quote.tax_total = tax_total
-        quote.gross_total = gross_total
+        quote.gross_total = max(0.0, gross_total - discount_value)
 
     db.add(quote)
     db.commit()
@@ -272,15 +286,27 @@ def convert_quote_to_sale(
     if not items:
         raise HTTPException(status_code=400, detail="Cotação sem itens")
 
-    paid = float(payload.paid) if payload.paid is not None else float(quote.gross_total)
+    quote_total = float(quote.gross_total or 0)
+    paid = float(payload.paid) if payload.paid is not None else quote_total
 
     sale = Sale(
         company_id=current_user.company_id,
+        branch_id=int(getattr(current_user, "branch_id", 0) or 0),
+        establishment_id=(
+            int(getattr(current_user, "establishment_id", 0) or 0)
+            if getattr(current_user, "establishment_id", None) is not None
+            else None
+        ),
         cashier_id=current_user.id,
+        cash_session_id=None,
         business_type="retail",
-        total=float(quote.gross_total),
+        total=quote_total,
+        net_total=float(getattr(quote, "net_total", 0) or 0),
+        tax_total=float(getattr(quote, "tax_total", 0) or 0),
+        discount_value=float(getattr(quote, "discount_value", 0) or 0),
+        include_tax=bool(getattr(quote, "include_tax", True)),
         paid=paid,
-        change=max(0.0, paid - float(quote.gross_total)),
+        change=max(0.0, paid - quote_total),
         payment_method=(payload.payment_method or "cash"),
         status="paid",
         sale_channel="counter",

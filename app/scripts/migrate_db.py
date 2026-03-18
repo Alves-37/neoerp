@@ -294,6 +294,7 @@ def main():
         db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS include_tax BOOLEAN NOT NULL DEFAULT TRUE"))
         db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS net_total NUMERIC(12,2) NOT NULL DEFAULT 0"))
         db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS tax_total NUMERIC(12,2) NOT NULL DEFAULT 0"))
+        db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS discount_value NUMERIC(12,2) NOT NULL DEFAULT 0"))
 
         # sales void/return metadata
         db.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS voided_at TIMESTAMPTZ NULL"))
@@ -1050,6 +1051,8 @@ def main():
                     net_total NUMERIC(12,2) NOT NULL DEFAULT 0,
                     tax_total NUMERIC(12,2) NOT NULL DEFAULT 0,
                     gross_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    include_tax BOOLEAN NOT NULL DEFAULT TRUE,
+                    discount_value NUMERIC(12,2) NOT NULL DEFAULT 0,
                     sale_id INTEGER NULL REFERENCES sales(id),
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1058,6 +1061,8 @@ def main():
                 """
             )
         )
+        db.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS include_tax BOOLEAN NOT NULL DEFAULT TRUE"))
+        db.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS discount_value NUMERIC(12,2) NOT NULL DEFAULT 0"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_quotes_company_id ON quotes(company_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_quotes_cashier_id ON quotes(cashier_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_quotes_status ON quotes(status)"))

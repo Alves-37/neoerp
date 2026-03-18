@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.connection import Base
@@ -26,6 +26,9 @@ class Quote(Base):
     net_total: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     tax_total: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     gross_total: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+
+    include_tax: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    discount_value: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
 
     sale_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("sales.id"), nullable=True, index=True)
 

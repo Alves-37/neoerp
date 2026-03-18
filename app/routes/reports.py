@@ -219,6 +219,7 @@ def sales_by_period(
             func.coalesce(Sale.total, 0).label("gross_total"),
             func.coalesce(getattr(Sale, "net_total", 0), 0).label("net_total"),
             func.coalesce(getattr(Sale, "tax_total", 0), 0).label("tax_total"),
+            func.coalesce(getattr(Sale, "discount_value", 0), 0).label("discount_value"),
         )
         .select_from(Sale)
         .where(*base_where)
@@ -226,14 +227,16 @@ def sales_by_period(
     ).all()
 
     sales = []
-    net_total = tax_total = gross_total = 0.0
-    for sale, s_gross, s_net, s_tax in sales_rows:
+    net_total = tax_total = gross_total = discount_total = 0.0
+    for sale, s_gross, s_net, s_tax, s_disc in sales_rows:
         s_gross_f = float(s_gross or 0)
         s_net_f = float(s_net or 0)
         s_tax_f = float(s_tax or 0)
+        s_disc_f = float(s_disc or 0)
         net_total += s_net_f
         tax_total += s_tax_f
         gross_total += s_gross_f
+        discount_total += s_disc_f
         sales.append({
             "id": sale.id,
             "created_at": sale.created_at.isoformat(),
@@ -242,6 +245,7 @@ def sales_by_period(
             "sale_channel": sale.sale_channel,
             "net_total": s_net_f,
             "tax_total": s_tax_f,
+            "discount_value": s_disc_f,
             "gross_total": s_gross_f,
         })
 
@@ -251,6 +255,7 @@ def sales_by_period(
         "sales_count": len(sales),
         "net_total": net_total,
         "tax_total": tax_total,
+        "discount_total": discount_total,
         "gross_total": gross_total,
         "sales": sales,
     }

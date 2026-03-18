@@ -16,6 +16,7 @@ class SaleCreate(BaseModel):
     seat_number: int | None = None
     payment_method: str = "cash"
     include_tax: bool = True
+    discount_value: float = 0
     paid: float = 0
     items: list[SaleItemCreate]
 
@@ -58,6 +59,7 @@ class SaleOut(BaseModel):
     total: float
     net_total: float = 0
     tax_total: float = 0
+    discount_value: float = 0
     include_tax: bool = True
     paid: float
     change: float

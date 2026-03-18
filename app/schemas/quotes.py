@@ -42,6 +42,9 @@ class QuoteOut(BaseModel):
     tax_total: float
     gross_total: float
 
+    include_tax: bool = True
+    discount_value: float = 0
+
     sale_id: int | None = None
 
     created_at: datetime
@@ -56,6 +59,9 @@ class CreateQuotePayload(BaseModel):
     customer_nuit: str | None = None
     currency: str = "MZN"
 
+    include_tax: bool = True
+    discount_value: float = 0
+
     items: list[QuoteItemIn]
 
 
@@ -64,6 +70,9 @@ class QuoteUpdatePayload(BaseModel):
     customer_name: str | None = None
     customer_nuit: str | None = None
     currency: str | None = None
+
+    include_tax: bool | None = None
+    discount_value: float | None = None
 
     items: list[QuoteItemIn] | None = None
 
