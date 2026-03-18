@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.database.connection import get_db
 from app.deps import get_current_user
 from app.models.company import Company
+from app.models.customer import Customer
 from app.models.product import Product
 from app.models.quote import Quote
 from app.models.quote_item import QuoteItem
@@ -345,6 +346,42 @@ def quote_pdf(
         "created_at": quote.created_at.isoformat() if quote.created_at else None,
     }
 
+    customer = None
+    branch_id = getattr(current_user, "branch_id", None)
+    q_nuit = (quote.customer_nuit or "").strip()
+    q_name = (quote.customer_name or "").strip()
+    if q_nuit:
+        stmt = (
+            select(Customer)
+            .where(Customer.company_id == current_user.company_id)
+            .where(func.coalesce(Customer.nuit, "") == q_nuit)
+            .limit(1)
+        )
+        if branch_id is not None:
+            stmt = stmt.where(Customer.branch_id == int(branch_id))
+        customer = db.scalar(stmt)
+    if not customer and q_name:
+        stmt = (
+            select(Customer)
+            .where(Customer.company_id == current_user.company_id)
+            .where(func.lower(func.coalesce(Customer.name, "")) == q_name.lower())
+            .limit(1)
+        )
+        if branch_id is not None:
+            stmt = stmt.where(Customer.branch_id == int(branch_id))
+        customer = db.scalar(stmt)
+
+    customer_dict = {}
+    if customer is not None:
+        customer_dict = {
+            "id": int(customer.id),
+            "name": customer.name,
+            "nuit": customer.nuit,
+            "email": customer.email,
+            "phone": customer.phone,
+            "address": customer.address,
+        }
+
     item_dicts = [
         {
             "product_id": int(i.product_id) if i.product_id is not None else None,
@@ -359,7 +396,7 @@ def quote_pdf(
         for i in (items or [])
     ]
 
-    pdf_data = {"quote": quote_dict, "items": item_dicts}
+    pdf_data = {"quote": quote_dict, "items": item_dicts, "customer": customer_dict}
     elements = quote_pdf_elements(pdf_data, company_dict)
     pdf_bytes = render_pdf(f"Cotação {quote.series}/{quote.number}", elements, on_page=pdf_data.get("on_page"))
     filename = f"cotacao_{quote.series}_{quote.number}.pdf"

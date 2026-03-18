@@ -176,6 +176,7 @@ def quote_pdf_elements(data: dict, company: dict) -> list:
 
     quote = data.get("quote") or {}
     items = data.get("items") or []
+    customer = data.get("customer") or {}
 
     def _fmt_date(v: str | None) -> str:
         if not v:
@@ -185,8 +186,12 @@ def quote_pdf_elements(data: dict, company: dict) -> list:
             s = s.split("T", 1)[0]
         return s
 
-    customer_name = (quote.get("customer_name") or "").strip()
-    customer_nuit = (quote.get("customer_nuit") or "").strip()
+    customer_name = (quote.get("customer_name") or "").strip() or (customer.get("name") or "").strip()
+    customer_nuit = (quote.get("customer_nuit") or "").strip() or (customer.get("nuit") or "").strip()
+    customer_address = (customer.get("address") or "").strip()
+    customer_city = (customer.get("city") or "").strip()
+    customer_phone = (customer.get("phone") or "").strip()
+    customer_email = (customer.get("email") or "").strip()
     created_day = _fmt_date(quote.get("created_at"))
 
     title_style = ParagraphStyle(
@@ -248,10 +253,10 @@ def quote_pdf_elements(data: dict, company: dict) -> list:
     fields = [
         _field_row("Cliente:", customer_name),
         _field_row("NUIT:", customer_nuit),
-        _field_row("Endereço:", ""),
-        _field_row("Cidade:", ""),
-        _field_row("Telefone:", ""),
-        _field_row("E-mail:", ""),
+        _field_row("Endereço:", customer_address),
+        _field_row("Cidade:", customer_city),
+        _field_row("Telefone:", customer_phone),
+        _field_row("E-mail:", customer_email),
     ]
 
     # Items table: fixed number of rows to match template.
@@ -354,20 +359,26 @@ def quote_pdf_elements(data: dict, company: dict) -> list:
         if logo_path:
             try:
                 # Draw logo above the brand text (approx template)
+                logo_w = 16 * mm
+                logo_h = 16 * mm
+                logo_x = width - 15 * mm - logo_w
+                logo_y = 12 * mm
                 canvas.drawImage(
                     logo_path,
-                    width - 15 * mm - 20 * mm,
-                    8.5 * mm,
-                    width=18 * mm,
-                    height=18 * mm,
+                    logo_x,
+                    logo_y,
+                    width=logo_w,
+                    height=logo_h,
                     preserveAspectRatio=True,
                     mask='auto',
                 )
             except Exception:
                 pass
         if brand:
-            canvas.setFont("Helvetica-Bold", 16)
-            canvas.drawRightString(width - 15 * mm, 14 * mm, brand[:24])
+            canvas.setFont("Helvetica-Bold", 14)
+            # When logo exists, keep brand text below it to avoid overlap.
+            brand_y = 8 * mm if logo_path else 14 * mm
+            canvas.drawRightString(width - 15 * mm, brand_y, brand[:24])
         canvas.restoreState()
 
     data["on_page"] = on_page
