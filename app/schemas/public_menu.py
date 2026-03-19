@@ -10,6 +10,9 @@ class PublicMenuProductOut(BaseModel):
     id: int
     name: str
     price: float
+    is_daily_dish: bool = False
+    promo_enabled: bool = False
+    promo_price: float | None = None
     category_id: int | None = None
     image_url: str | None = None
 

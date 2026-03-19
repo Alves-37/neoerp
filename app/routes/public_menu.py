@@ -103,7 +103,6 @@ def get_public_menu(request: Request, host: str | None = None, domain: str | Non
         .where(Product.business_type == "restaurant")
         .where(Product.is_active.is_(True))
         .where(Product.show_in_menu.is_(True))
-        .order_by(Product.category_id.asc().nulls_last(), Product.name.asc(), Product.id.asc())
     ).all()
 
     category_ids = sorted({int(p.category_id) for p in products if p.category_id is not None})
@@ -137,15 +136,47 @@ def get_public_menu(request: Request, host: str | None = None, domain: str | Non
     out_products: list[PublicMenuProductOut] = []
     for p in products:
         img = latest_by_product.get(p.id)
+
+        attrs = getattr(p, "attributes", None) or {}
+        try:
+            is_daily_dish = bool(attrs.get("is_daily_dish"))
+        except Exception:
+            is_daily_dish = False
+        try:
+            promo_enabled = bool(attrs.get("promo_enabled"))
+        except Exception:
+            promo_enabled = False
+        promo_price_raw = attrs.get("promo_price")
+        promo_price: float | None
+        try:
+            promo_price = float(promo_price_raw) if promo_price_raw is not None and promo_price_raw != "" else None
+        except Exception:
+            promo_price = None
+
         out_products.append(
             PublicMenuProductOut(
                 id=p.id,
                 name=p.name,
                 price=float(p.price or 0),
+                is_daily_dish=is_daily_dish,
+                promo_enabled=promo_enabled,
+                promo_price=promo_price,
                 category_id=p.category_id,
                 image_url=(f"/uploads/{img.file_path}" if img else None),
             )
         )
+
+    out_products = sorted(
+        out_products,
+        key=lambda x: (
+            0 if bool(getattr(x, "promo_enabled", False)) else 1,
+            0 if bool(getattr(x, "is_daily_dish", False)) else 1,
+            1 if getattr(x, "category_id", None) is None else 0,
+            getattr(x, "category_id", 0) or 0,
+            (getattr(x, "name", "") or "").casefold(),
+            getattr(x, "id", 0) or 0,
+        ),
+    )
 
     return PublicMenuOut(
         branch_id=branch.id,
@@ -271,12 +302,30 @@ def _list_public_products_for_branch(db: Session, branch: Branch, q: str | None 
         except Exception:
             desc_txt = ""
 
+        attrs = getattr(product, "attributes", None) or {}
+        try:
+            is_daily_dish = bool(attrs.get("is_daily_dish"))
+        except Exception:
+            is_daily_dish = False
+        try:
+            promo_enabled = bool(attrs.get("promo_enabled"))
+        except Exception:
+            promo_enabled = False
+        promo_price_raw = attrs.get("promo_price")
+        try:
+            promo_price = float(promo_price_raw) if promo_price_raw is not None and promo_price_raw != "" else None
+        except Exception:
+            promo_price = None
+
         out.append(
             {
                 "id": product.id,
                 "nome": product.name,
                 "descricao": desc_txt,
                 "preco_venda": float(product.price or 0),
+                "is_daily_dish": is_daily_dish,
+                "promo_enabled": promo_enabled,
+                "promo_price": promo_price,
                 "imagem": (f"/uploads/{image_file_path}" if image_file_path else None),
                 "categoria_id": product.category_id,
                 "categoria_nome": category_name,
@@ -284,6 +333,17 @@ def _list_public_products_for_branch(db: Session, branch: Branch, q: str | None 
                 "estoque": float(stock_qty or 0),
             }
         )
+    out = sorted(
+        out,
+        key=lambda x: (
+            0 if bool(x.get("promo_enabled")) else 1,
+            0 if bool(x.get("is_daily_dish")) else 1,
+            1 if x.get("categoria_id") is None else 0,
+            int(x.get("categoria_id") or 0),
+            str(x.get("nome") or "").casefold(),
+            int(x.get("id") or 0),
+        ),
+    )
     return out
 
 
@@ -357,12 +417,30 @@ def list_public_menu_products_by_slug(slug: str, q: str | None = None, db: Sessi
         except Exception:
             desc_txt = ""
 
+        attrs = getattr(product, "attributes", None) or {}
+        try:
+            is_daily_dish = bool(attrs.get("is_daily_dish"))
+        except Exception:
+            is_daily_dish = False
+        try:
+            promo_enabled = bool(attrs.get("promo_enabled"))
+        except Exception:
+            promo_enabled = False
+        promo_price_raw = attrs.get("promo_price")
+        try:
+            promo_price = float(promo_price_raw) if promo_price_raw is not None and promo_price_raw != "" else None
+        except Exception:
+            promo_price = None
+
         out.append(
             {
                 "id": product.id,
                 "nome": product.name,
                 "descricao": desc_txt,
                 "preco_venda": float(product.price or 0),
+                "is_daily_dish": is_daily_dish,
+                "promo_enabled": promo_enabled,
+                "promo_price": promo_price,
                 "imagem": (f"/uploads/{image_file_path}" if image_file_path else None),
                 "categoria_id": product.category_id,
                 "categoria_nome": category_name,
@@ -370,4 +448,15 @@ def list_public_menu_products_by_slug(slug: str, q: str | None = None, db: Sessi
                 "estoque": float(stock_qty or 0),
             }
         )
+    out = sorted(
+        out,
+        key=lambda x: (
+            0 if bool(x.get("promo_enabled")) else 1,
+            0 if bool(x.get("is_daily_dish")) else 1,
+            1 if x.get("categoria_id") is None else 0,
+            int(x.get("categoria_id") or 0),
+            str(x.get("nome") or "").casefold(),
+            int(x.get("id") or 0),
+        ),
+    )
     return out
