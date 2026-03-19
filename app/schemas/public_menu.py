@@ -45,3 +45,62 @@ class PublicOrderCreate(BaseModel):
 class PublicOrderCreatedOut(BaseModel):
     order_id: int
     status: str
+
+
+class PublicDistanceCheckoutItemCreate(BaseModel):
+    produto_id: str
+    quantidade: float = 1
+    observacao: str | None = None
+
+
+class PublicDistanceCheckoutCreate(BaseModel):
+    tipo: str  # entrega|retirada
+    cliente_nome: str
+    cliente_telefone: str
+    endereco_entrega: str | None = None
+    taxa_entrega: float = 0
+    bairro: str | None = None
+    provider: str | None = None
+    phone: str | None = None
+    itens: list[PublicDistanceCheckoutItemCreate]
+
+
+class PublicDistanceCheckoutOut(BaseModel):
+    pedido_id: int
+    pedido_uuid: str
+    status: str
+
+
+class PublicPedidoItemCreate(BaseModel):
+    produto_id: str
+    quantidade: float = 1
+    observacao: str | None = None
+
+
+class PublicPedidoCreate(BaseModel):
+    mesa_id: int
+    lugar_numero: int = 1
+    observacao_cozinha: str | None = None
+    payment_mode: str | None = None
+    itens: list[PublicPedidoItemCreate]
+
+
+class PublicPedidoCreatedOut(BaseModel):
+    pedido_id: int
+    pedido_uuid: str
+    status: str
+
+
+class PublicPedidoTrackItemOut(BaseModel):
+    produto_nome: str | None = None
+    quantidade: float
+    subtotal: float
+
+
+class PublicPedidoTrackOut(BaseModel):
+    pedido_id: int
+    pedido_uuid: str
+    status: str
+    updated_at: str | None = None
+    valor_total: float = 0
+    itens: list[PublicPedidoTrackItemOut] = []

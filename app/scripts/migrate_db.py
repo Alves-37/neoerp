@@ -210,6 +210,26 @@ def main():
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_opened_at ON cash_sessions(opened_at)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_closed_at ON cash_sessions(closed_at)"))
 
+        # orders: delivery/public tracking metadata
+        db.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_uuid VARCHAR(64) NULL"))
+        db.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_type VARCHAR(20) NOT NULL DEFAULT 'table'"))
+        db.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_kind VARCHAR(20) NULL"))
+        db.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_name VARCHAR(120) NULL"))
+        db.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(40) NULL"))
+        db.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_address VARCHAR(255) NULL"))
+        db.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_zone_name VARCHAR(120) NULL"))
+        db.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_fee NUMERIC(12,2) NOT NULL DEFAULT 0"))
+
+        # Ensure delivery can exist without table/seat; keep as 0 when not applicable.
+        db.execute(text("ALTER TABLE orders ALTER COLUMN table_number SET DEFAULT 0"))
+        db.execute(text("ALTER TABLE orders ALTER COLUMN seat_number SET DEFAULT 0"))
+        db.execute(text("UPDATE orders SET table_number = 0 WHERE table_number IS NULL"))
+        db.execute(text("UPDATE orders SET seat_number = 0 WHERE seat_number IS NULL"))
+
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_order_uuid ON orders(order_uuid)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_order_type ON orders(order_type)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_customer_phone ON orders(customer_phone)"))
+
         # backfill cash_sessions.establishment_id using the opened_by user's establishment_id (fallback to branch default)
         db.execute(
             text(

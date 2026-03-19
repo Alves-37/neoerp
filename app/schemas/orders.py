@@ -39,6 +39,14 @@ class OrderOut(BaseModel):
     branch_id: int
     business_type: str
     status: str
+    order_uuid: str | None = None
+    order_type: str = "table"
+    delivery_kind: str | None = None
+    customer_name: str | None = None
+    customer_phone: str | None = None
+    delivery_address: str | None = None
+    delivery_zone_name: str | None = None
+    delivery_fee: float = 0
     table_number: int
     seat_number: int
     created_at: datetime

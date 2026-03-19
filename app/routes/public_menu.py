@@ -1,3 +1,6 @@
+from datetime import datetime
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
@@ -17,6 +20,12 @@ from app.schemas.public_menu import (
     PublicMenuOut,
     PublicMesaOut,
     PublicMenuProductOut,
+    PublicDistanceCheckoutCreate,
+    PublicDistanceCheckoutOut,
+    PublicPedidoCreate,
+    PublicPedidoCreatedOut,
+    PublicPedidoTrackItemOut,
+    PublicPedidoTrackOut,
     PublicOrderCreate,
     PublicOrderCreatedOut,
 )
@@ -322,6 +331,235 @@ def create_public_order(payload: PublicOrderCreate, request: Request, db: Sessio
 
     db.commit()
     return PublicOrderCreatedOut(order_id=order.id, status="open")
+
+
+@router.post("/pedidos", response_model=PublicPedidoCreatedOut)
+def create_public_pedido(
+    payload: PublicPedidoCreate,
+    request: Request,
+    host: str | None = None,
+    domain: str | None = None,
+    db: Session = Depends(get_db),
+):
+    branch = _resolve_branch_from_request_or_host(db, request, domain or host)
+    business_type = (branch.business_type or "").strip().lower()
+    if business_type != "restaurant":
+        raise HTTPException(status_code=404, detail="Indisponível")
+
+    if not payload.itens:
+        raise HTTPException(status_code=400, detail="Pedido deve ter itens")
+
+    mesa = db.get(RestaurantTable, int(payload.mesa_id))
+    if not mesa or mesa.company_id != branch.company_id or mesa.branch_id != branch.id or not bool(mesa.is_active):
+        raise HTTPException(status_code=400, detail="Mesa inválida")
+
+    seat_number = int(payload.lugar_numero or 1)
+    if seat_number <= 0:
+        seat_number = 1
+
+    order_uuid = uuid4().hex
+    order = Order(
+        company_id=branch.company_id,
+        branch_id=branch.id,
+        business_type="restaurant",
+        status="open",
+        order_uuid=order_uuid,
+        order_type="table",
+        table_number=int(mesa.number),
+        seat_number=seat_number,
+    )
+    db.add(order)
+    db.flush()
+
+    for it in payload.itens:
+        try:
+            product_id = int(str(it.produto_id).strip())
+        except Exception:
+            raise HTTPException(status_code=400, detail="Produto inválido")
+        product = db.get(Product, product_id)
+        if (
+            not product
+            or product.company_id != branch.company_id
+            or product.branch_id != branch.id
+            or (product.business_type or "").strip().lower() != "restaurant"
+            or not bool(product.is_active)
+            or not bool(product.show_in_menu)
+        ):
+            raise HTTPException(status_code=400, detail="Produto inválido")
+
+        qty = float(it.quantidade or 0)
+        if qty <= 0:
+            raise HTTPException(status_code=400, detail="Quantidade inválida")
+
+        price = float(product.price or 0)
+        cost = float(product.cost or 0)
+        line_total = round(price * qty, 2)
+        db.add(
+            OrderItem(
+                company_id=branch.company_id,
+                branch_id=branch.id,
+                order_id=order.id,
+                product_id=product.id,
+                qty=qty,
+                price_at_order=price,
+                cost_at_order=cost,
+                line_total=line_total,
+            )
+        )
+
+    db.commit()
+    return PublicPedidoCreatedOut(pedido_id=order.id, pedido_uuid=order_uuid, status="open")
+
+
+@router.post("/distancia/checkout", response_model=PublicDistanceCheckoutOut)
+def create_public_distance_checkout(
+    payload: PublicDistanceCheckoutCreate,
+    request: Request,
+    host: str | None = None,
+    domain: str | None = None,
+    db: Session = Depends(get_db),
+):
+    branch = _resolve_branch_from_request_or_host(db, request, domain or host)
+    business_type = (branch.business_type or "").strip().lower()
+    if business_type != "restaurant":
+        raise HTTPException(status_code=404, detail="Indisponível")
+
+    tipo = (payload.tipo or "").strip().lower()
+    if tipo not in {"entrega", "retirada"}:
+        raise HTTPException(status_code=400, detail="Tipo inválido")
+    if not (payload.cliente_nome or "").strip():
+        raise HTTPException(status_code=400, detail="Nome é obrigatório")
+    if not (payload.cliente_telefone or "").strip():
+        raise HTTPException(status_code=400, detail="Telefone é obrigatório")
+    if tipo == "entrega" and not (payload.endereco_entrega or "").strip():
+        raise HTTPException(status_code=400, detail="Endereço é obrigatório")
+    if not payload.itens:
+        raise HTTPException(status_code=400, detail="Pedido deve ter itens")
+
+    order_uuid = uuid4().hex
+    order = Order(
+        company_id=branch.company_id,
+        branch_id=branch.id,
+        business_type="restaurant",
+        status="open",
+        order_uuid=order_uuid,
+        order_type="delivery",
+        delivery_kind=tipo,
+        customer_name=(payload.cliente_nome or "").strip() or None,
+        customer_phone=(payload.cliente_telefone or "").strip() or None,
+        delivery_address=(payload.endereco_entrega or "").strip() or None,
+        delivery_zone_name=(payload.bairro or "").strip() or None,
+        delivery_fee=float(payload.taxa_entrega or 0),
+        table_number=0,
+        seat_number=0,
+    )
+    db.add(order)
+    db.flush()
+
+    for it in payload.itens:
+        try:
+            product_id = int(str(it.produto_id).strip())
+        except Exception:
+            raise HTTPException(status_code=400, detail="Produto inválido")
+        product = db.get(Product, product_id)
+        if (
+            not product
+            or product.company_id != branch.company_id
+            or product.branch_id != branch.id
+            or (product.business_type or "").strip().lower() != "restaurant"
+            or not bool(product.is_active)
+            or not bool(product.show_in_menu)
+        ):
+            raise HTTPException(status_code=400, detail="Produto inválido")
+
+        qty = float(it.quantidade or 0)
+        if qty <= 0:
+            raise HTTPException(status_code=400, detail="Quantidade inválida")
+
+        price = float(product.price or 0)
+        cost = float(product.cost or 0)
+        line_total = round(price * qty, 2)
+        db.add(
+            OrderItem(
+                company_id=branch.company_id,
+                branch_id=branch.id,
+                order_id=order.id,
+                product_id=product.id,
+                qty=qty,
+                price_at_order=price,
+                cost_at_order=cost,
+                line_total=line_total,
+            )
+        )
+
+    db.commit()
+    return PublicDistanceCheckoutOut(pedido_id=order.id, pedido_uuid=order_uuid, status="open")
+
+
+@router.get("/pedidos/uuid/{pedido_uuid}", response_model=PublicPedidoTrackOut)
+def get_public_order_by_uuid(
+    pedido_uuid: str,
+    request: Request,
+    host: str | None = None,
+    domain: str | None = None,
+    db: Session = Depends(get_db),
+):
+    branch = _resolve_branch_from_request_or_host(db, request, domain or host)
+    business_type = (branch.business_type or "").strip().lower()
+    if business_type != "restaurant":
+        raise HTTPException(status_code=404, detail="Indisponível")
+
+    uuid = (pedido_uuid or "").strip()
+    if not uuid:
+        raise HTTPException(status_code=400, detail="UUID inválido")
+
+    o = db.scalar(
+        select(Order)
+        .where(Order.company_id == branch.company_id)
+        .where(Order.branch_id == branch.id)
+        .where(Order.order_uuid == uuid)
+    )
+    if not o:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+
+    rows = db.execute(
+        select(OrderItem, Product.name)
+        .join(Product, Product.id == OrderItem.product_id)
+        .where(OrderItem.company_id == branch.company_id)
+        .where(OrderItem.branch_id == branch.id)
+        .where(OrderItem.order_id == o.id)
+        .order_by(OrderItem.id.asc())
+    ).all()
+
+    items_out: list[PublicPedidoTrackItemOut] = []
+    total = 0.0
+    for oi, pname in rows:
+        subtotal = float(getattr(oi, "line_total", 0) or 0)
+        total = round(total + subtotal, 2)
+        items_out.append(
+            PublicPedidoTrackItemOut(
+                produto_nome=pname,
+                quantidade=float(getattr(oi, "qty", 0) or 0),
+                subtotal=subtotal,
+            )
+        )
+
+    updated_at = None
+    try:
+        dt = getattr(o, "updated_at", None) or getattr(o, "created_at", None)
+        if isinstance(dt, datetime):
+            updated_at = dt.isoformat()
+    except Exception:
+        updated_at = None
+
+    return PublicPedidoTrackOut(
+        pedido_id=o.id,
+        pedido_uuid=uuid,
+        status=getattr(o, "status", "open"),
+        updated_at=updated_at,
+        valor_total=total,
+        itens=items_out,
+    )
 
 
 def _list_public_products_for_branch(db: Session, branch: Branch, q: str | None = None, somente_disponiveis: bool = True):
