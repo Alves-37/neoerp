@@ -6,7 +6,7 @@ import logging
 import os
 import time
 
-from app.routes import auth, branches, cash_sessions, companies, customers, dashboard, debts, debug_menu, establishments, fiscal_documents, legacy_public_api, orders, printers, product_categories, product_stocks, products, public_menu, quotes, reports, restaurant_tables, sales, stock_adjustments, stock_locations, stock_movements, stock_transfers, supplier_payments, supplier_purchases, suppliers, users
+from app.routes import auth, branches, cash_sessions, companies, customers, dashboard, debts, debug_menu, delivery_zones, establishments, fiscal_documents, legacy_public_api, orders, printers, product_categories, product_stocks, products, public_menu, quotes, reports, restaurant_tables, sales, stock_adjustments, stock_locations, stock_movements, stock_transfers, supplier_payments, supplier_purchases, suppliers, users
 from app.settings import Settings
 
 settings = Settings()
@@ -40,6 +40,7 @@ app.include_router(companies.router, prefix="/companies", tags=["companies"])
 app.include_router(customers.router, prefix="/customers", tags=["customers"])
 app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 app.include_router(restaurant_tables.router, prefix="/restaurant-tables", tags=["restaurant-tables"])
+app.include_router(delivery_zones.router, prefix="/delivery-zones", tags=["delivery-zones"])
 app.include_router(orders.router, prefix="/orders", tags=["orders"])
 app.include_router(sales.router, prefix="/sales", tags=["sales"])
 app.include_router(cash_sessions.router, prefix="/cash-sessions", tags=["cash-sessions"])

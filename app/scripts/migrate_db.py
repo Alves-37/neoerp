@@ -37,6 +37,30 @@ def main():
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_branches_public_menu_subdomain ON branches(public_menu_subdomain)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_branches_public_menu_custom_domain ON branches(public_menu_custom_domain)"))
 
+        # delivery zones (taxa de entrega por bairro/filial)
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS delivery_zones (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL REFERENCES companies(id),
+                    branch_id INTEGER NOT NULL REFERENCES branches(id),
+                    name VARCHAR(120) NOT NULL,
+                    fee NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                """
+            )
+        )
+
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_delivery_zones_company_id ON delivery_zones(company_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_delivery_zones_branch_id ON delivery_zones(branch_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_delivery_zones_is_active ON delivery_zones(is_active)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_delivery_zones_name ON delivery_zones(name)"))
+
         # ensure users.branch_id exists
         db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS branch_id INTEGER"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_users_branch_id ON users(branch_id)"))
