@@ -38,6 +38,28 @@ class Printer(Base):
     )
 
 
+class PrinterSaleLine(Base):
+    __tablename__ = "printer_sale_lines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    company_id: Mapped[int] = mapped_column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    branch_id: Mapped[int] = mapped_column(Integer, ForeignKey("branches.id"), nullable=False, index=True)
+    sale_id: Mapped[int] = mapped_column(Integer, ForeignKey("sales.id"), nullable=False, index=True)
+    printer_id: Mapped[int] = mapped_column(Integer, ForeignKey("printers.id"), nullable=False, index=True)
+    counter_type_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("printer_counter_types.id"),
+        nullable=True,
+        index=True,
+    )
+
+    copies: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    unit_price: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False, default=0)
+    line_total: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class PrinterBillingRegistry(Base):
     __tablename__ = "printer_billing_registry"
     __table_args__ = (

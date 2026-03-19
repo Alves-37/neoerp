@@ -9,6 +9,7 @@ from app.deps import get_current_user
 from app.models.company import Company
 from app.models.fiscal_document import FiscalDocument
 from app.models.fiscal_document_line import FiscalDocumentLine
+from app.models.printer import Printer, PrinterCounterType, PrinterSaleLine
 from app.models.sale import Sale
 from app.models.sale_item import SaleItem
 from app.models.user import User
@@ -255,6 +256,60 @@ def sales_by_period(
         .order_by(Sale.created_at.asc())
     ).all()
 
+    sale_ids = [int(sale.id) for sale, _s_gross, _s_net, _s_tax, _s_disc in sales_rows]
+    printer_lines_by_sale: dict[int, list[dict]] = {}
+    if sale_ids:
+        pl_rows = db.execute(
+            select(
+                PrinterSaleLine.sale_id,
+                PrinterSaleLine.printer_id,
+                Printer.serial_number,
+                Printer.brand,
+                Printer.model,
+                PrinterSaleLine.counter_type_id,
+                PrinterCounterType.code,
+                PrinterCounterType.name,
+                PrinterSaleLine.copies,
+                PrinterSaleLine.unit_price,
+                PrinterSaleLine.line_total,
+            )
+            .select_from(PrinterSaleLine)
+            .join(Printer, Printer.id == PrinterSaleLine.printer_id)
+            .outerjoin(PrinterCounterType, PrinterCounterType.id == PrinterSaleLine.counter_type_id)
+            .where(PrinterSaleLine.company_id == current_user.company_id)
+            .where(PrinterSaleLine.branch_id == int(current_user.branch_id))
+            .where(PrinterSaleLine.sale_id.in_(sale_ids))
+            .order_by(PrinterSaleLine.sale_id.asc(), PrinterSaleLine.id.asc())
+        ).all()
+        for (
+            sale_id,
+            printer_id,
+            serial_number,
+            brand,
+            model,
+            counter_type_id,
+            counter_code,
+            counter_name,
+            copies,
+            unit_price,
+            line_total,
+        ) in pl_rows:
+            sid = int(sale_id)
+            printer_lines_by_sale.setdefault(sid, []).append(
+                {
+                    "printer_id": int(printer_id),
+                    "serial_number": serial_number,
+                    "brand": brand,
+                    "model": model,
+                    "counter_type_id": int(counter_type_id) if counter_type_id is not None else None,
+                    "counter_type_code": counter_code,
+                    "counter_type_name": counter_name,
+                    "copies": int(copies or 0),
+                    "unit_price": float(unit_price or 0),
+                    "line_total": float(line_total or 0),
+                }
+            )
+
     sales = []
     net_total = tax_total = gross_total = discount_total = 0.0
     for sale, s_gross, s_net, s_tax, s_disc in sales_rows:
@@ -276,6 +331,7 @@ def sales_by_period(
             "tax_total": s_tax_f,
             "discount_value": s_disc_f,
             "gross_total": s_gross_f,
+            "printer_lines": printer_lines_by_sale.get(int(sale.id), []),
         })
 
     return {
@@ -341,6 +397,60 @@ def cash_closure(
         .order_by(Sale.created_at.asc())
     ).all()
 
+    sale_ids = [int(sale.id) for sale, _s_gross, _s_net, _s_tax in sales_rows]
+    printer_lines_by_sale: dict[int, list[dict]] = {}
+    if sale_ids:
+        pl_rows = db.execute(
+            select(
+                PrinterSaleLine.sale_id,
+                PrinterSaleLine.printer_id,
+                Printer.serial_number,
+                Printer.brand,
+                Printer.model,
+                PrinterSaleLine.counter_type_id,
+                PrinterCounterType.code,
+                PrinterCounterType.name,
+                PrinterSaleLine.copies,
+                PrinterSaleLine.unit_price,
+                PrinterSaleLine.line_total,
+            )
+            .select_from(PrinterSaleLine)
+            .join(Printer, Printer.id == PrinterSaleLine.printer_id)
+            .outerjoin(PrinterCounterType, PrinterCounterType.id == PrinterSaleLine.counter_type_id)
+            .where(PrinterSaleLine.company_id == current_user.company_id)
+            .where(PrinterSaleLine.branch_id == int(current_user.branch_id))
+            .where(PrinterSaleLine.sale_id.in_(sale_ids))
+            .order_by(PrinterSaleLine.sale_id.asc(), PrinterSaleLine.id.asc())
+        ).all()
+        for (
+            sale_id,
+            printer_id,
+            serial_number,
+            brand,
+            model,
+            counter_type_id,
+            counter_code,
+            counter_name,
+            copies,
+            unit_price,
+            line_total,
+        ) in pl_rows:
+            sid = int(sale_id)
+            printer_lines_by_sale.setdefault(sid, []).append(
+                {
+                    "printer_id": int(printer_id),
+                    "serial_number": serial_number,
+                    "brand": brand,
+                    "model": model,
+                    "counter_type_id": int(counter_type_id) if counter_type_id is not None else None,
+                    "counter_type_code": counter_code,
+                    "counter_type_name": counter_name,
+                    "copies": int(copies or 0),
+                    "unit_price": float(unit_price or 0),
+                    "line_total": float(line_total or 0),
+                }
+            )
+
     sales = []
     net_total = tax_total = gross_total = 0.0
     for sale, s_gross, s_net, s_tax in sales_rows:
@@ -359,6 +469,7 @@ def cash_closure(
             "net_total": s_net_f,
             "tax_total": s_tax_f,
             "gross_total": s_gross_f,
+            "printer_lines": printer_lines_by_sale.get(int(sale.id), []),
         })
 
     return {

@@ -917,6 +917,31 @@ def main():
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_readings_counter_type_id ON printer_readings(counter_type_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_readings_reading_date ON printer_readings(reading_date)"))
 
+        # printer billing lines linked to sales (for reports/PDF details)
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS printer_sale_lines (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL REFERENCES companies(id),
+                    branch_id INTEGER NOT NULL REFERENCES branches(id),
+                    sale_id INTEGER NOT NULL REFERENCES sales(id),
+                    printer_id INTEGER NOT NULL REFERENCES printers(id),
+                    counter_type_id INTEGER NULL REFERENCES printer_counter_types(id),
+                    copies INTEGER NOT NULL DEFAULT 0,
+                    unit_price NUMERIC(12,4) NOT NULL DEFAULT 0,
+                    line_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                """
+            )
+        )
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_sale_lines_company_id ON printer_sale_lines(company_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_sale_lines_branch_id ON printer_sale_lines(branch_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_sale_lines_sale_id ON printer_sale_lines(sale_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_sale_lines_printer_id ON printer_sale_lines(printer_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_printer_sale_lines_counter_type_id ON printer_sale_lines(counter_type_id)"))
+
         # product_images
         db.execute(
             text(

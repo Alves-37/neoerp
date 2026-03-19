@@ -12,7 +12,14 @@ from app.database.connection import get_db
 from app.deps import get_current_user
 from app.models.branch import Branch
 from app.models.cash_session import CashSession
-from app.models.printer import Printer, PrinterBillingRegistry, PrinterContract, PrinterCounterType, PrinterReading
+from app.models.printer import (
+    Printer,
+    PrinterBillingRegistry,
+    PrinterContract,
+    PrinterCounterType,
+    PrinterReading,
+    PrinterSaleLine,
+)
 from app.models.product import Product
 from app.models.product_category import ProductCategory
 from app.models.product_stock import ProductStock
@@ -817,13 +824,26 @@ def generate_pdv3_billing_launch(
         change=0.0,
         payment_method="internal",
         status="paid",
-        sale_channel="counter",
+        sale_channel="printer",
         table_number=None,
         seat_number=None,
         created_at=datetime.utcnow(),
     )
     db.add(sale)
     db.flush()
+
+    db.add(
+        PrinterSaleLine(
+            company_id=current_user.company_id,
+            branch_id=int(current_user.branch_id),
+            sale_id=int(sale.id),
+            printer_id=int(payload.printer_id),
+            counter_type_id=None,
+            copies=int(row.copies_new or 0),
+            unit_price=float(price),
+            line_total=float(total),
+        )
+    )
 
     db.add(
         SaleItem(
@@ -1064,6 +1084,7 @@ def generate_billing_launch(
     }
 
     items: list[SaleItem] = []
+    printer_lines: list[PrinterSaleLine] = []
     net_total = 0.0
 
     for p in bill.printers:
@@ -1101,6 +1122,19 @@ def generate_billing_launch(
                     line_total=float(line_total),
                 )
             )
+
+            printer_lines.append(
+                PrinterSaleLine(
+                    company_id=current_user.company_id,
+                    branch_id=int(current_user.branch_id),
+                    sale_id=0,
+                    printer_id=int(ln.printer_id),
+                    counter_type_id=int(ln.counter_type_id) if ln.counter_type_id is not None else None,
+                    copies=int(qty),
+                    unit_price=float(price),
+                    line_total=float(line_total),
+                )
+            )
             net_total = round(float(net_total) + float(line_total), 2)
 
     if not items:
@@ -1121,7 +1155,7 @@ def generate_billing_launch(
         change=0.0,
         payment_method="internal",
         status="paid",
-        sale_channel="counter",
+        sale_channel="printer",
         table_number=None,
         seat_number=None,
         created_at=datetime.utcnow(),
@@ -1132,6 +1166,10 @@ def generate_billing_launch(
     for it in items:
         it.sale_id = int(sale.id)
         db.add(it)
+
+    for pl in printer_lines:
+        pl.sale_id = int(sale.id)
+        db.add(pl)
     db.commit()
     db.refresh(sale)
 

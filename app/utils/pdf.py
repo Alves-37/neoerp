@@ -13,12 +13,12 @@ def _default_on_page(title: str):
         canvas.saveState()
         width, _height = A4
 
-        canvas.setStrokeColor(colors.HexColor('#334155'))
+        canvas.setStrokeColor(colors.HexColor('#d1d5db'))
         canvas.setLineWidth(0.5)
         canvas.line(15 * mm, 13 * mm, width - 15 * mm, 13 * mm)
 
         canvas.setFont('Helvetica', 8)
-        canvas.setFillColor(colors.HexColor('#64748b'))
+        canvas.setFillColor(colors.HexColor('#6b7280'))
         ts = datetime.now().strftime('%Y-%m-%d %H:%M')
         canvas.drawString(15 * mm, 8.5 * mm, f"{title} · Gerado em {ts}")
         canvas.drawRightString(width - 15 * mm, 8.5 * mm, f"Página {doc.page}")
@@ -97,12 +97,18 @@ def _metric_cards(items: list[tuple[str, str]]) -> Table:
 
     def _card(label: str, value: str):
         styles = getSampleStyleSheet()
-        label_p = Paragraph(label or "&nbsp;", ParagraphStyle('mLabel', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#94a3b8')))
-        value_p = Paragraph(f"<b>{value or ''}</b>", ParagraphStyle('mValue', parent=styles['Normal'], fontSize=14, textColor=colors.white, leading=16))
+        label_p = Paragraph(
+            label or "&nbsp;",
+            ParagraphStyle('mLabel', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#6b7280')),
+        )
+        value_p = Paragraph(
+            f"<b>{value or ''}</b>",
+            ParagraphStyle('mValue', parent=styles['Normal'], fontSize=14, textColor=colors.HexColor('#111827'), leading=16),
+        )
         t = Table([[label_p], [value_p]], colWidths=[None], rowHeights=[6.5 * mm, 9 * mm])
         t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#0b1220')),
-            ('BOX', (0, 0), (-1, -1), 0.6, colors.HexColor('#334155')),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.white),
+            ('BOX', (0, 0), (-1, -1), 0.6, colors.HexColor('#d1d5db')),
             ('LEFTPADDING', (0, 0), (-1, -1), 8),
             ('RIGHTPADDING', (0, 0), (-1, -1), 8),
             ('TOPPADDING', (0, 0), (-1, -1), 6),
@@ -170,6 +176,7 @@ def _channel_label(value: str | None) -> str:
         'counter': 'Balcão',
         'table': 'Mesa',
         'debt': 'Dívida',
+        'printer': 'Impressora',
     }.get(k, value or '-')
 
 
@@ -197,12 +204,13 @@ def _styled_table(headers: list, rows: list, col_widths: list, aligns: list) -> 
     styles = [
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, 0), 9),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0f172a')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#111827')),
         ('FONTSIZE', (0, 1), (-1, -1), 9),
         ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('GRID', (0, 0), (-1, -1), 0.25, colors.HexColor('#334155')),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.HexColor('#0b1220'), colors.HexColor('#0f172a')]),
+        ('TEXTCOLOR', (0, 1), (-1, -1), colors.HexColor('#111827')),
+        ('GRID', (0, 0), (-1, -1), 0.25, colors.HexColor('#d1d5db')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')]),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('LEFTPADDING', (0, 0), (-1, -1), 6),
         ('RIGHTPADDING', (0, 0), (-1, -1), 6),
@@ -504,6 +512,7 @@ def sales_by_period_pdf_elements(data: dict, company: dict, start: date, end: da
     currency = (company.get('currency') or '').strip()
     sales_count = int(data.get('sales_count', 0) or 0)
     disc_total = float(data.get('discount_total', 0) or 0)
+    styles = getSampleStyleSheet()
     elements = [
         _header_block('Vendas por Período', f"Período: {start} a {end} (Africa/Maputo)", company),
         Spacer(0, 6*mm),
@@ -532,6 +541,38 @@ def sales_by_period_pdf_elements(data: dict, company: dict, start: date, end: da
             aligns=['LEFT', 'LEFT', 'LEFT', 'LEFT', 'RIGHT', 'RIGHT', 'RIGHT'],
         ),
     ]
+
+    printer_rows = []
+    for s in data.get('sales', []) or []:
+        for pl in (s.get('printer_lines') or []):
+            printer_name = " ".join([x for x in [pl.get('brand'), pl.get('model')] if x])
+            serial = (pl.get('serial_number') or '').strip()
+            counter = (pl.get('counter_type_name') or pl.get('counter_type_code') or '-').strip() if isinstance(pl.get('counter_type_name') or pl.get('counter_type_code'), str) else (pl.get('counter_type_name') or pl.get('counter_type_code') or '-')
+            printer_rows.append(
+                [
+                    (s.get('created_at') or '')[:10],
+                    f"{printer_name} ({serial})".strip() if (printer_name or serial) else '-',
+                    counter or '-',
+                    str(int(pl.get('copies') or 0)),
+                    _fmt_money(float(pl.get('unit_price', 0) or 0), currency),
+                    _fmt_money(float(pl.get('line_total', 0) or 0), currency),
+                ]
+            )
+
+    if printer_rows:
+        elements.extend(
+            [
+                Spacer(0, 8 * mm),
+                Paragraph('Detalhes de Impressão', ParagraphStyle('secPrint', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor('#e2e8f0'))),
+                Spacer(0, 3 * mm),
+                _styled_table(
+                    ['Data', 'Impressora', 'Tipo', 'Cópias', 'Preço/Cópia', 'Total'],
+                    printer_rows,
+                    col_widths=[22 * mm, None, 26 * mm, 18 * mm, 26 * mm, 26 * mm],
+                    aligns=['LEFT', 'LEFT', 'LEFT', 'RIGHT', 'RIGHT', 'RIGHT'],
+                ),
+            ]
+        )
     return elements
 
 
@@ -567,4 +608,36 @@ def cash_closure_pdf_elements(data: dict, company: dict, user: dict, day: date) 
             aligns=['LEFT', 'LEFT', 'LEFT', 'LEFT', 'RIGHT', 'RIGHT', 'RIGHT'],
         ),
     ]
+
+    printer_rows = []
+    for s in data.get('sales', []) or []:
+        for pl in (s.get('printer_lines') or []):
+            printer_name = " ".join([x for x in [pl.get('brand'), pl.get('model')] if x])
+            serial = (pl.get('serial_number') or '').strip()
+            counter = (pl.get('counter_type_name') or pl.get('counter_type_code') or '-').strip() if isinstance(pl.get('counter_type_name') or pl.get('counter_type_code'), str) else (pl.get('counter_type_name') or pl.get('counter_type_code') or '-')
+            printer_rows.append(
+                [
+                    (s.get('created_at') or '')[11:19] or '-',
+                    f"{printer_name} ({serial})".strip() if (printer_name or serial) else '-',
+                    counter or '-',
+                    str(int(pl.get('copies') or 0)),
+                    _fmt_money(float(pl.get('unit_price', 0) or 0), currency),
+                    _fmt_money(float(pl.get('line_total', 0) or 0), currency),
+                ]
+            )
+
+    if printer_rows:
+        elements.extend(
+            [
+                Spacer(0, 8 * mm),
+                Paragraph('Detalhes de Impressão', ParagraphStyle('secPrint2', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor('#e2e8f0'))),
+                Spacer(0, 3 * mm),
+                _styled_table(
+                    ['Hora', 'Impressora', 'Tipo', 'Cópias', 'Preço/Cópia', 'Total'],
+                    printer_rows,
+                    col_widths=[16 * mm, None, 26 * mm, 18 * mm, 26 * mm, 26 * mm],
+                    aligns=['LEFT', 'LEFT', 'LEFT', 'RIGHT', 'RIGHT', 'RIGHT'],
+                ),
+            ]
+        )
     return elements
