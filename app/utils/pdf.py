@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from io import BytesIO
 
 from reportlab.lib import colors
@@ -8,14 +8,31 @@ from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 
 
+def _default_on_page(title: str):
+    def _on_page(canvas, doc):
+        canvas.saveState()
+        width, _height = A4
+
+        canvas.setStrokeColor(colors.HexColor('#334155'))
+        canvas.setLineWidth(0.5)
+        canvas.line(15 * mm, 13 * mm, width - 15 * mm, 13 * mm)
+
+        canvas.setFont('Helvetica', 8)
+        canvas.setFillColor(colors.HexColor('#64748b'))
+        ts = datetime.now().strftime('%Y-%m-%d %H:%M')
+        canvas.drawString(15 * mm, 8.5 * mm, f"{title} · Gerado em {ts}")
+        canvas.drawRightString(width - 15 * mm, 8.5 * mm, f"Página {doc.page}")
+        canvas.restoreState()
+
+    return _on_page
+
+
 def render_pdf(title: str, elements: list, on_page=None) -> bytes:
     """Render a list of Platypus elements to PDF bytes using ReportLab."""
     buffer = BytesIO()
     pdf = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=15*mm, leftMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
-    if on_page is not None:
-        pdf.build(elements, onFirstPage=on_page, onLaterPages=on_page)
-    else:
-        pdf.build(elements)
+    page_cb = on_page or _default_on_page(title)
+    pdf.build(elements, onFirstPage=page_cb, onLaterPages=page_cb)
     buffer.seek(0)
     return buffer.getvalue()
 
@@ -71,22 +88,89 @@ def _header_block(title: str, subtitle: str, company: dict) -> Table:
     return t
 
 
-def _summary_grid(data: dict, currency: str = '') -> Table:
-    grid_data = [
-        ['Docs emitidos', str(data.get('docs_issued', 0))],
-        ['Docs anulados', str(data.get('docs_cancelled', 0))],
-        ['IVA', f"{data.get('tax_total', 0):.2f} {currency}".strip()],
-        ['Total', f"{data.get('gross_total', 0):.2f} {currency}".strip()],
+def _metric_cards(items: list[tuple[str, str]]) -> Table:
+    """Two-row grid of metric cards (4 metrics recommended)."""
+    # Layout as 2 columns x 2 rows by default.
+    pairs = list(items or [])
+    while len(pairs) < 4:
+        pairs.append(("", ""))
+
+    def _card(label: str, value: str):
+        styles = getSampleStyleSheet()
+        label_p = Paragraph(label or "&nbsp;", ParagraphStyle('mLabel', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#94a3b8')))
+        value_p = Paragraph(f"<b>{value or ''}</b>", ParagraphStyle('mValue', parent=styles['Normal'], fontSize=14, textColor=colors.white, leading=16))
+        t = Table([[label_p], [value_p]], colWidths=[None], rowHeights=[6.5 * mm, 9 * mm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#0b1220')),
+            ('BOX', (0, 0), (-1, -1), 0.6, colors.HexColor('#334155')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        return t
+
+    grid = [
+        [_card(*pairs[0]), _card(*pairs[1])],
+        [_card(*pairs[2]), _card(*pairs[3])],
     ]
-    table = Table(grid_data, colWidths=[40*mm, 40*mm], rowHeights=[12*mm]*4)
-    table.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+    t = Table(grid, colWidths=[None, None], rowHeights=[None, None])
+    t.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+        ('INNERGRID', (0, 0), (-1, -1), 0, colors.white),
+        ('ROWBACKGROUNDS', (0, 0), (-1, -1), [None, None]),
     ]))
-    return table
+    return t
+
+
+def _fmt_money(value, currency: str = '') -> str:
+    try:
+        v = float(value or 0)
+    except Exception:
+        v = 0.0
+    s = f"{v:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    return f"{s} {currency}".strip()
+
+
+def _payment_label(value: str | None) -> str:
+    k = (value or '').strip().lower()
+    return {
+        'cash': 'Dinheiro',
+        'card': 'Cartão (POS)',
+        'mpesa': 'M-Pesa',
+        'emola': 'e-Mola',
+        'mkesh': 'mKesh',
+        'transfer': 'Transferência',
+        'cheque': 'Cheque',
+        'other': 'Outro',
+        'debt': 'Dívida (Fiado)',
+    }.get(k, value or '-')
+
+
+def _status_label(value: str | None) -> str:
+    k = (value or '').strip().lower()
+    return {
+        'paid': 'Pago',
+        'void': 'Anulado',
+        'open': 'Aberto',
+        'pending': 'Pendente',
+        'completed': 'Concluído',
+        'closed': 'Fechado',
+    }.get(k, value or '-')
+
+
+def _channel_label(value: str | None) -> str:
+    k = (value or '').strip().lower()
+    return {
+        'counter': 'Balcão',
+        'table': 'Mesa',
+        'debt': 'Dívida',
+    }.get(k, value or '-')
 
 
 def _table_from_list(headers: list, rows: list, aligns: list = None) -> Table:
@@ -133,40 +217,42 @@ def _styled_table(headers: list, rows: list, col_widths: list, aligns: list) -> 
 
 def daily_z_pdf_elements(data: dict, company: dict) -> list:
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=16,
-        alignment=1,  # center
-        spaceAfter=6*mm,
-    )
-    subtitle_style = ParagraphStyle(
-        'CustomSubtitle',
-        parent=styles['Heading2'],
-        fontSize=12,
-        alignment=1,
-        spaceAfter=12*mm,
-    )
+    currency = (company.get('currency') or '').strip()
     elements = [
-        Paragraph('Fecho Diário (Z)', title_style),
-        Paragraph(f"Data: {data['day']} (Africa/Maputo)", subtitle_style),
-        _company_info_table(company),
-        Spacer(0, 6*mm),
-        _summary_grid(data, company.get('currency', '')),
-        Spacer(0, 6*mm),
-        Paragraph('Por tipo de documento', styles['Heading2']),
-        Spacer(0, 3*mm),
-        _table_from_list(['Tipo', 'Qtd', 'Total'], [
-            [r['document_type'], str(r['count']), f"{r['gross_total']:.2f}"]
-            for r in data.get('by_type', [])
-        ], aligns=['LEFT', 'CENTER', 'RIGHT']),
-        Spacer(0, 6*mm),
-        Paragraph('IVA por taxa', styles['Heading2']),
-        Spacer(0, 3*mm),
-        _table_from_list(['Taxa', 'Incidência', 'IVA', 'Total'], [
-            [f"{r['tax_rate']:.2f}%", f"{r['net_total']:.2f}", f"{r['tax_total']:.2f}", f"{r['gross_total']:.2f}"]
-            for r in data.get('vat_by_rate', [])
-        ], aligns=['RIGHT', 'RIGHT', 'RIGHT', 'RIGHT']),
+        _header_block('Fecho Diário (Z)', f"Data: {data.get('day', '')} (Africa/Maputo)", company),
+        Spacer(0, 6 * mm),
+        _metric_cards([
+            ('Documentos emitidos', str(data.get('docs_issued', 0))),
+            ('Documentos anulados', str(data.get('docs_cancelled', 0))),
+            ('IVA', _fmt_money(data.get('tax_total', 0), currency)),
+            ('Total', _fmt_money(data.get('gross_total', 0), currency)),
+        ]),
+        Spacer(0, 8 * mm),
+        Paragraph('Por tipo de documento', ParagraphStyle('sec', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor('#e2e8f0'))),
+        Spacer(0, 3 * mm),
+        _styled_table(
+            ['Tipo', 'Qtd', 'Total'],
+            [[r.get('document_type') or '-', str(r.get('count') or 0), _fmt_money(r.get('gross_total', 0), currency)] for r in data.get('by_type', [])],
+            col_widths=[None, 20 * mm, 35 * mm],
+            aligns=['LEFT', 'CENTER', 'RIGHT'],
+        ),
+        Spacer(0, 8 * mm),
+        Paragraph('IVA por taxa', ParagraphStyle('sec2', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor('#e2e8f0'))),
+        Spacer(0, 3 * mm),
+        _styled_table(
+            ['Taxa', 'Incidência', 'IVA', 'Total'],
+            [
+                [
+                    f"{float(r.get('tax_rate') or 0):.2f}%",
+                    _fmt_money(r.get('net_total', 0), currency),
+                    _fmt_money(r.get('tax_total', 0), currency),
+                    _fmt_money(r.get('gross_total', 0), currency),
+                ]
+                for r in data.get('vat_by_rate', [])
+            ],
+            col_widths=[18 * mm, None, None, None],
+            aligns=['RIGHT', 'RIGHT', 'RIGHT', 'RIGHT'],
+        ),
     ]
     return elements
 
@@ -415,42 +501,30 @@ def vat_by_rate_pdf_elements(data: dict, company: dict) -> list:
 
 
 def sales_by_period_pdf_elements(data: dict, company: dict, start: date, end: date) -> list:
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=16,
-        alignment=1,
-        spaceAfter=6*mm,
-    )
-    subtitle_style = ParagraphStyle(
-        'CustomSubtitle',
-        parent=styles['Heading2'],
-        fontSize=12,
-        alignment=1,
-        spaceAfter=12*mm,
-    )
+    currency = (company.get('currency') or '').strip()
+    sales_count = int(data.get('sales_count', 0) or 0)
+    disc_total = float(data.get('discount_total', 0) or 0)
     elements = [
         _header_block('Vendas por Período', f"Período: {start} a {end} (Africa/Maputo)", company),
         Spacer(0, 6*mm),
-        _summary_grid({
-            'docs_issued': data.get('sales_count', 0),
-            'docs_cancelled': 0,
-            'tax_total': data.get('tax_total', 0),
-            'gross_total': data.get('gross_total', 0),
-        }, company.get('currency', '')),
+        _metric_cards([
+            ('Vendas', str(sales_count)),
+            ('Descontos', _fmt_money(disc_total, currency)),
+            ('IVA', _fmt_money(data.get('tax_total', 0), currency)),
+            ('Total', _fmt_money(data.get('gross_total', 0), currency)),
+        ]),
         Spacer(0, 6*mm),
         _styled_table(
             ['Data', 'Pagamento', 'Estado', 'Canal', 'Líquido', 'IVA', 'Total'],
             [
                 [
                     s['created_at'][:10],
-                    (s.get('payment_method') or '-'),
-                    (s.get('status') or '-'),
-                    (s.get('sale_channel') or '-'),
-                    f"{float(s.get('net_total', 0)):.2f}",
-                    f"{float(s.get('tax_total', 0)):.2f}",
-                    f"{float(s.get('gross_total', 0)):.2f}",
+                    _payment_label(s.get('payment_method')),
+                    _status_label(s.get('status')),
+                    _channel_label(s.get('sale_channel')),
+                    _fmt_money(float(s.get('net_total', 0) or 0), currency),
+                    _fmt_money(float(s.get('tax_total', 0) or 0), currency),
+                    _fmt_money(float(s.get('gross_total', 0) or 0), currency),
                 ]
                 for s in data.get('sales', [])
             ],
@@ -463,45 +537,34 @@ def sales_by_period_pdf_elements(data: dict, company: dict, start: date, end: da
 
 def cash_closure_pdf_elements(data: dict, company: dict, user: dict, day: date) -> list:
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=16,
-        alignment=1,
-        spaceAfter=6*mm,
-    )
-    subtitle_style = ParagraphStyle(
-        'CustomSubtitle',
-        parent=styles['Heading2'],
-        fontSize=12,
-        alignment=1,
-        spaceAfter=12*mm,
-    )
+    currency = (company.get('currency') or '').strip()
+    op_name = (user.get('name') or user.get('username') or '-').strip() if isinstance(user, dict) else '-'
     elements = [
-        Paragraph('Fecho de Caixa', title_style),
-        Paragraph(f"Data: {day} (Africa/Maputo)", subtitle_style),
-        Paragraph(f"Operador: {user.get('name', '-')}", styles['Normal']),
-        Spacer(0, 3*mm),
-        _company_info_table(company),
-        Spacer(0, 6*mm),
-        _summary_grid({
-            'docs_issued': data.get('sales_count', 0),
-            'docs_cancelled': 0,
-            'tax_total': data.get('tax_total', 0),
-            'gross_total': data.get('gross_total', 0),
-        }, company.get('currency', '')),
-        Spacer(0, 6*mm),
-        _table_from_list(['Hora', 'Pagamento', 'Estado', 'Canal', 'Líquido', 'IVA', 'Total'], [
+        _header_block('Fecho de Caixa', f"Data: {day} (Africa/Maputo) · Operador: {op_name}", company),
+        Spacer(0, 6 * mm),
+        _metric_cards([
+            ('Vendas', str(int(data.get('sales_count', 0) or 0))),
+            ('Líquido', _fmt_money(data.get('net_total', 0), currency)),
+            ('IVA', _fmt_money(data.get('tax_total', 0), currency)),
+            ('Total', _fmt_money(data.get('gross_total', 0), currency)),
+        ]),
+        Spacer(0, 6 * mm),
+        _styled_table(
+            ['Hora', 'Pagamento', 'Estado', 'Canal', 'Líquido', 'IVA', 'Total'],
             [
-                s['created_at'][11:19],
-                s.get('payment_method', '-') or '-',
-                s.get('status', '-') or '-',
-                s.get('sale_channel', '-') or '-',
-                f"{s['net_total']:.2f}",
-                f"{s['tax_total']:.2f}",
-                f"{s['gross_total']:.2f}",
-            ]
-            for s in data.get('sales', [])
-        ], aligns=['LEFT', 'LEFT', 'LEFT', 'LEFT', 'RIGHT', 'RIGHT', 'RIGHT']),
+                [
+                    (s.get('created_at') or '')[11:19] or '-',
+                    _payment_label(s.get('payment_method')),
+                    _status_label(s.get('status')),
+                    _channel_label(s.get('sale_channel')),
+                    _fmt_money(s.get('net_total', 0), currency),
+                    _fmt_money(s.get('tax_total', 0), currency),
+                    _fmt_money(s.get('gross_total', 0), currency),
+                ]
+                for s in data.get('sales', [])
+            ],
+            col_widths=[16 * mm, 30 * mm, 20 * mm, 20 * mm, None, 22 * mm, None],
+            aligns=['LEFT', 'LEFT', 'LEFT', 'LEFT', 'RIGHT', 'RIGHT', 'RIGHT'],
+        ),
     ]
     return elements
