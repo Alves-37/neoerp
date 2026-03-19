@@ -17,6 +17,7 @@ class ProductBase(BaseModel):
     track_stock: bool = True
     is_service: bool = False
     is_active: bool = True
+    show_in_menu: bool = False
     attributes: dict = Field(default_factory=dict)
 
 
@@ -43,6 +44,7 @@ class ProductUpdate(BaseModel):
     track_stock: bool | None = None
     is_service: bool | None = None
     is_active: bool | None = None
+    show_in_menu: bool | None = None
     attributes: dict | None = None
     stock_qty: float | None = None
 

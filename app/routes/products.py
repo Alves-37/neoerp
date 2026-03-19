@@ -121,6 +121,7 @@ def list_products(
     low_stock: bool = False,
     is_active: bool | None = None,
     in_stock: bool = False,
+    show_in_menu: bool | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -187,6 +188,9 @@ def list_products(
 
     if is_active is not None:
         stmt = stmt.where(Product.is_active.is_(bool(is_active)))
+
+    if show_in_menu is not None:
+        stmt = stmt.where(Product.show_in_menu.is_(bool(show_in_menu)))
 
     if category_id is not None:
         stmt = stmt.where(Product.category_id == int(category_id))
@@ -296,7 +300,9 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db), curren
         track_stock=track_stock,
         is_service=is_service,
         is_active=payload.is_active,
-        show_in_menu=True if (business_type or "").strip().lower() == "restaurant" else False,
+        show_in_menu=bool(payload.show_in_menu)
+        if getattr(payload, "show_in_menu", None) is not None
+        else (True if (business_type or "").strip().lower() == "restaurant" else False),
         attributes=payload.attributes or {},
     )
     db.add(product)
