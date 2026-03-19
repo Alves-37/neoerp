@@ -26,8 +26,13 @@ router = APIRouter()
 
 
 @router.get("/mesas", response_model=list[PublicMesaOut])
-def list_public_tables(request: Request, db: Session = Depends(get_db)):
-    branch = _resolve_branch_from_request(db, request)
+def list_public_tables(
+    request: Request,
+    host: str | None = None,
+    domain: str | None = None,
+    db: Session = Depends(get_db),
+):
+    branch = _resolve_branch_from_request_or_host(db, request, domain or host)
     business_type = (branch.business_type or "").strip().lower()
     if business_type != "restaurant":
         raise HTTPException(status_code=404, detail="Indisponível")
@@ -44,8 +49,13 @@ def list_public_tables(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/delivery-zones", response_model=list[PublicDeliveryZoneOut])
-def list_public_delivery_zones(request: Request, db: Session = Depends(get_db)):
-    branch = _resolve_branch_from_request(db, request)
+def list_public_delivery_zones(
+    request: Request,
+    host: str | None = None,
+    domain: str | None = None,
+    db: Session = Depends(get_db),
+):
+    branch = _resolve_branch_from_request_or_host(db, request, domain or host)
     business_type = (branch.business_type or "").strip().lower()
     if business_type != "restaurant":
         raise HTTPException(status_code=404, detail="Indisponível")

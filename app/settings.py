@@ -32,6 +32,7 @@ class Settings(BaseSettings):
         default=[
             "http://localhost:5173",
             "https://erpneo.vercel.app",
+            "https://menu.vuchada.com",
             "https://www.vuchada.com",
             "https://vuchada.com",
         ],
