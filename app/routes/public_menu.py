@@ -10,15 +10,35 @@ from app.models.product import Product
 from app.models.product_category import ProductCategory
 from app.models.product_image import ProductImage
 from app.models.product_stock import ProductStock
+from app.models.restaurant_table import RestaurantTable
 from app.schemas.public_menu import (
     PublicMenuCategoryOut,
     PublicMenuOut,
+    PublicMesaOut,
     PublicMenuProductOut,
     PublicOrderCreate,
     PublicOrderCreatedOut,
 )
 
 router = APIRouter()
+
+
+@router.get("/mesas", response_model=list[PublicMesaOut])
+def list_public_tables(request: Request, db: Session = Depends(get_db)):
+    branch = _resolve_branch_from_request(db, request)
+    business_type = (branch.business_type or "").strip().lower()
+    if business_type != "restaurant":
+        raise HTTPException(status_code=404, detail="Indisponível")
+
+    rows = db.scalars(
+        select(RestaurantTable)
+        .where(RestaurantTable.company_id == branch.company_id)
+        .where(RestaurantTable.branch_id == branch.id)
+        .where(RestaurantTable.is_active.is_(True))
+        .order_by(RestaurantTable.number.asc(), RestaurantTable.id.asc())
+    ).all()
+
+    return [PublicMesaOut(id=r.id, numero=int(r.number)) for r in rows]
 
 
 def _normalize_host_value(value: str) -> str:

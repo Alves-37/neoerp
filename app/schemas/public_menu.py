@@ -24,6 +24,11 @@ class PublicMenuOut(BaseModel):
     products: list[PublicMenuProductOut] = []
 
 
+class PublicMesaOut(BaseModel):
+    id: int
+    numero: int
+
+
 class PublicOrderItemCreate(BaseModel):
     product_id: int
     qty: float = 1
