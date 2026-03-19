@@ -45,7 +45,29 @@ def list_public_tables(
         .order_by(RestaurantTable.number.asc(), RestaurantTable.id.asc())
     ).all()
 
-    return [PublicMesaOut(id=r.id, numero=int(r.number)) for r in rows]
+    table_numbers = [int(r.number) for r in rows if getattr(r, "number", None) is not None]
+    occupied_by_table: dict[int, int] = {}
+    if table_numbers:
+        occ_rows = db.execute(
+            select(Order.table_number, func.count(func.distinct(Order.seat_number)))
+            .where(Order.company_id == branch.company_id)
+            .where(Order.branch_id == branch.id)
+            .where(Order.business_type == "restaurant")
+            .where(Order.status.in_(["open", "in_progress"]))
+            .where(Order.table_number.in_(table_numbers))
+            .group_by(Order.table_number)
+        ).all()
+        occupied_by_table = {int(tn): int(cnt or 0) for (tn, cnt) in occ_rows if tn is not None}
+
+    return [
+        PublicMesaOut(
+            id=r.id,
+            numero=int(r.number),
+            capacity=int(getattr(r, "capacity", 0) or 0) or None,
+            occupied_seats=int(occupied_by_table.get(int(r.number), 0)),
+        )
+        for r in rows
+    ]
 
 
 @router.get("/delivery-zones", response_model=list[PublicDeliveryZoneOut])

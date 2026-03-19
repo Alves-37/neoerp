@@ -27,6 +27,8 @@ class PublicMenuOut(BaseModel):
 class PublicMesaOut(BaseModel):
     id: int
     numero: int
+    capacity: int | None = None
+    occupied_seats: int = 0
 
 
 class PublicOrderItemCreate(BaseModel):
