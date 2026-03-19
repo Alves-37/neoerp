@@ -1,7 +1,7 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
@@ -58,7 +58,7 @@ def daily_z_report(
     )
     if effective_establishment_id is not None:
         totals_stmt = totals_stmt.select_from(FiscalDocument).join(Sale, Sale.id == FiscalDocument.sale_id).where(
-            Sale.establishment_id == effective_establishment_id
+            or_(Sale.establishment_id == effective_establishment_id, Sale.establishment_id.is_(None))
         )
     totals = db.execute(totals_stmt).one()
 
@@ -69,7 +69,7 @@ def daily_z_report(
     )
     if effective_establishment_id is not None:
         cancelled_stmt = cancelled_stmt.select_from(FiscalDocument).join(Sale, Sale.id == FiscalDocument.sale_id).where(
-            Sale.establishment_id == effective_establishment_id
+            or_(Sale.establishment_id == effective_establishment_id, Sale.establishment_id.is_(None))
         )
     cancelled = db.execute(cancelled_stmt).one()
 
@@ -86,7 +86,7 @@ def daily_z_report(
     )
     if effective_establishment_id is not None:
         by_type_stmt = by_type_stmt.select_from(FiscalDocument).join(Sale, Sale.id == FiscalDocument.sale_id).where(
-            Sale.establishment_id == effective_establishment_id
+            or_(Sale.establishment_id == effective_establishment_id, Sale.establishment_id.is_(None))
         )
     by_type_rows = db.execute(by_type_stmt).all()
 
@@ -106,7 +106,9 @@ def daily_z_report(
         .order_by(FiscalDocumentLine.tax_rate.asc())
     )
     if effective_establishment_id is not None:
-        vat_stmt = vat_stmt.join(Sale, Sale.id == FiscalDocument.sale_id).where(Sale.establishment_id == effective_establishment_id)
+        vat_stmt = vat_stmt.join(Sale, Sale.id == FiscalDocument.sale_id).where(
+            or_(Sale.establishment_id == effective_establishment_id, Sale.establishment_id.is_(None))
+        )
     vat_rows = db.execute(vat_stmt).all()
 
     return {
@@ -238,7 +240,7 @@ def sales_by_period(
         local_day <= end_day,
     ]
     if effective_establishment_id is not None:
-        base_where.append(Sale.establishment_id == effective_establishment_id)
+        base_where.append(or_(Sale.establishment_id == effective_establishment_id, Sale.establishment_id.is_(None)))
 
     sales_rows = db.execute(
         select(
@@ -325,7 +327,7 @@ def cash_closure(
         local_day == day,
     ]
     if effective_establishment_id is not None:
-        base_where.append(Sale.establishment_id == effective_establishment_id)
+        base_where.append(or_(Sale.establishment_id == effective_establishment_id, Sale.establishment_id.is_(None)))
 
     sales_rows = db.execute(
         select(
