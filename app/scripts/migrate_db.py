@@ -230,6 +230,52 @@ def main():
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_order_type ON orders(order_type)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_customer_phone ON orders(customer_phone)"))
 
+        # orders: mark when ingredient stock was consumed from recipe
+        db.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_consumed_at TIMESTAMPTZ NULL"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_stock_consumed_at ON orders(stock_consumed_at)"))
+
+        # recipes (ficha técnica do prato)
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS recipes (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL REFERENCES companies(id),
+                    branch_id INTEGER NOT NULL REFERENCES branches(id),
+                    product_id INTEGER NOT NULL REFERENCES products(id),
+                    yield_qty NUMERIC(12,3) NOT NULL DEFAULT 1,
+                    yield_unit VARCHAR(20) NOT NULL DEFAULT 'portion',
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                """
+            )
+        )
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_recipes_company_id ON recipes(company_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_recipes_branch_id ON recipes(branch_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_recipes_product_id ON recipes(product_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_recipes_is_active ON recipes(is_active)"))
+
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS recipe_items (
+                    id SERIAL PRIMARY KEY,
+                    recipe_id INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+                    ingredient_product_id INTEGER NOT NULL REFERENCES products(id),
+                    qty NUMERIC(12,3) NOT NULL DEFAULT 0,
+                    unit VARCHAR(10) NOT NULL DEFAULT 'un',
+                    waste_percent NUMERIC(6,2) NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                """
+            )
+        )
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_recipe_items_recipe_id ON recipe_items(recipe_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_recipe_items_ingredient_product_id ON recipe_items(ingredient_product_id)"))
+
         # backfill cash_sessions.establishment_id using the opened_by user's establishment_id (fallback to branch default)
         db.execute(
             text(

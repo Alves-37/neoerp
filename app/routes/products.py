@@ -12,6 +12,8 @@ from app.models.product import Product
 from app.models.product_category import ProductCategory
 from app.models.product_image import ProductImage
 from app.models.product_stock import ProductStock
+from app.models.recipe import Recipe
+from app.models.recipe_item import RecipeItem
 from app.models.sale_item import SaleItem
 from app.models.stock_movement import StockMovement
 from app.models.stock_transfer import StockTransfer
@@ -19,10 +21,38 @@ from app.models.supplier import Supplier
 from app.models.stock_location import StockLocation
 from app.models.user import User
 from app.schemas.products import ProductCreate, ProductImageOut, ProductOut, ProductUpdate
+from app.schemas.recipes import RecipeOut, RecipeUpsertIn
 from app.settings import Settings
 
 router = APIRouter()
 settings = Settings()
+
+
+def _get_recipe_out(db: Session, current_user: User, recipe: Recipe) -> RecipeOut:
+    items = db.scalars(
+        select(RecipeItem)
+        .where(RecipeItem.recipe_id == recipe.id)
+        .order_by(RecipeItem.id.asc())
+    ).all()
+    return RecipeOut(
+        id=recipe.id,
+        product_id=int(recipe.product_id),
+        yield_qty=float(recipe.yield_qty or 0),
+        yield_unit=str(recipe.yield_unit or "portion"),
+        is_active=bool(recipe.is_active),
+        created_at=recipe.created_at,
+        updated_at=recipe.updated_at,
+        items=[
+            {
+                "id": int(i.id),
+                "ingredient_product_id": int(i.ingredient_product_id),
+                "qty": float(i.qty or 0),
+                "unit": str(i.unit or "un"),
+                "waste_percent": float(i.waste_percent or 0),
+            }
+            for i in items
+        ],
+    )
 
 
 def _get_or_create_stock_row(db: Session, company_id: int, branch_id: int, product_id: int, location_id: int) -> ProductStock:
@@ -523,3 +553,103 @@ def list_product_images(
         )
         for r in rows
     ]
+
+
+@router.get("/{product_id}/recipe", response_model=RecipeOut | None)
+def get_product_recipe(product_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    product = db.get(Product, product_id)
+    if not product or product.company_id != current_user.company_id:
+        raise HTTPException(status_code=404, detail="Produto não encontrado")
+    if int(getattr(product, "branch_id", 0) or 0) != int(current_user.branch_id):
+        raise HTTPException(status_code=404, detail="Produto não encontrado")
+
+    recipe = db.scalar(
+        select(Recipe)
+        .where(Recipe.company_id == current_user.company_id)
+        .where(Recipe.branch_id == int(current_user.branch_id))
+        .where(Recipe.product_id == int(product.id))
+        .where(Recipe.is_active.is_(True))
+        .order_by(Recipe.id.desc())
+        .limit(1)
+    )
+    if not recipe:
+        return None
+    return _get_recipe_out(db, current_user, recipe)
+
+
+@router.put("/{product_id}/recipe", response_model=RecipeOut)
+def upsert_product_recipe(
+    product_id: int,
+    payload: RecipeUpsertIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    product = db.get(Product, product_id)
+    if not product or product.company_id != current_user.company_id:
+        raise HTTPException(status_code=404, detail="Produto não encontrado")
+    if int(getattr(product, "branch_id", 0) or 0) != int(current_user.branch_id):
+        raise HTTPException(status_code=404, detail="Produto não encontrado")
+
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="Ficha técnica deve ter ingredientes")
+
+    recipe = db.scalar(
+        select(Recipe)
+        .where(Recipe.company_id == current_user.company_id)
+        .where(Recipe.branch_id == int(current_user.branch_id))
+        .where(Recipe.product_id == int(product.id))
+        .where(Recipe.is_active.is_(True))
+        .order_by(Recipe.id.desc())
+        .limit(1)
+    )
+    if not recipe:
+        recipe = Recipe(
+            company_id=current_user.company_id,
+            branch_id=int(current_user.branch_id),
+            product_id=int(product.id),
+            yield_qty=1,
+            yield_unit="portion",
+            is_active=True,
+        )
+        db.add(recipe)
+        db.flush()
+
+    # Replace items for simplicity
+    db.query(RecipeItem).filter(RecipeItem.recipe_id == recipe.id).delete()
+    db.flush()
+
+    for it in payload.items:
+        ingredient = db.get(Product, int(it.ingredient_product_id))
+        if (
+            not ingredient
+            or ingredient.company_id != current_user.company_id
+            or int(getattr(ingredient, "branch_id", 0) or 0) != int(current_user.branch_id)
+            or not bool(ingredient.is_active)
+        ):
+            raise HTTPException(status_code=400, detail="Ingrediente inválido")
+
+        qty = float(it.qty or 0)
+        if qty <= 0:
+            raise HTTPException(status_code=400, detail="Quantidade inválida")
+
+        unit = str(it.unit or "un").strip().lower()
+        if unit not in {"un", "kg", "g", "l", "ml"}:
+            raise HTTPException(status_code=400, detail="Unidade inválida")
+
+        waste = float(it.waste_percent or 0)
+        if waste < 0:
+            waste = 0
+
+        db.add(
+            RecipeItem(
+                recipe_id=int(recipe.id),
+                ingredient_product_id=int(ingredient.id),
+                qty=qty,
+                unit=unit,
+                waste_percent=waste,
+            )
+        )
+
+    db.commit()
+    db.refresh(recipe)
+    return _get_recipe_out(db, current_user, recipe)

@@ -34,6 +34,9 @@ class Order(Base):
     table_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
     seat_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
 
+    # When a restaurant order is marked as in_progress, we can consume ingredient stock once.
+    stock_consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

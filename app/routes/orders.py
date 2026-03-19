@@ -10,12 +10,184 @@ from app.models.branch import Branch
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.product import Product
+from app.models.product_stock import ProductStock
+from app.models.recipe import Recipe
+from app.models.recipe_item import RecipeItem
 from app.models.sale import Sale
 from app.models.sale_item import SaleItem
+from app.models.stock_movement import StockMovement
 from app.models.user import User
 from app.schemas.orders import OrderClosePayload, OrderCreate, OrderItemOut, OrderOut, OrderUpdate
 
 router = APIRouter()
+
+
+def _get_or_create_stock_row(db: Session, company_id: int, branch_id: int, product_id: int, location_id: int) -> ProductStock:
+    row = db.scalar(
+        select(ProductStock)
+        .where(ProductStock.company_id == company_id)
+        .where(ProductStock.branch_id == int(branch_id))
+        .where(ProductStock.product_id == product_id)
+        .where(ProductStock.location_id == location_id)
+        .with_for_update()
+    )
+    if row:
+        return row
+
+    row = ProductStock(
+        company_id=company_id,
+        branch_id=int(branch_id),
+        product_id=product_id,
+        location_id=location_id,
+        qty_on_hand=0,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _convert_qty(qty: float, unit: str, base_unit: str) -> float:
+    u = (unit or "").strip().lower()
+    b = (base_unit or "").strip().lower()
+
+    if not b:
+        b = u
+
+    if u == b:
+        return float(qty)
+
+    # Mass
+    if u == "kg" and b == "g":
+        return float(qty) * 1000.0
+    if u == "g" and b == "kg":
+        return float(qty) / 1000.0
+
+    # Volume
+    if u == "l" and b == "ml":
+        return float(qty) * 1000.0
+    if u == "ml" and b == "l":
+        return float(qty) / 1000.0
+
+    raise HTTPException(status_code=400, detail="Unidade do ingrediente incompatível com a unidade base")
+
+
+def _consume_stock_for_order(db: Session, current_user: User, o: Order) -> None:
+    if getattr(o, "stock_consumed_at", None) is not None:
+        return
+    if (getattr(o, "business_type", "") or "").strip().lower() != "restaurant":
+        return
+
+    order_items = db.scalars(
+        select(OrderItem)
+        .where(OrderItem.company_id == current_user.company_id)
+        .where(OrderItem.branch_id == getattr(o, "branch_id", None))
+        .where(OrderItem.order_id == o.id)
+        .order_by(desc(OrderItem.id))
+    ).all()
+    if not order_items:
+        o.stock_consumed_at = datetime.utcnow()
+        db.add(o)
+        return
+
+    for oi in order_items:
+        dish = db.get(Product, int(oi.product_id))
+        if (
+            not dish
+            or dish.company_id != current_user.company_id
+            or int(getattr(dish, "branch_id", 0) or 0) != int(getattr(o, "branch_id", 0) or 0)
+        ):
+            continue
+
+        recipe = db.scalar(
+            select(Recipe)
+            .where(Recipe.company_id == current_user.company_id)
+            .where(Recipe.branch_id == int(getattr(o, "branch_id", current_user.branch_id) or current_user.branch_id))
+            .where(Recipe.product_id == int(dish.id))
+            .where(Recipe.is_active.is_(True))
+            .order_by(Recipe.id.desc())
+            .limit(1)
+        )
+        if not recipe:
+            continue
+
+        recipe_items = db.scalars(
+            select(RecipeItem).where(RecipeItem.recipe_id == recipe.id).order_by(RecipeItem.id.asc())
+        ).all()
+        if not recipe_items:
+            continue
+
+        yield_qty = float(getattr(recipe, "yield_qty", 1) or 1)
+        if yield_qty <= 0:
+            yield_qty = 1
+
+        ordered_qty = float(getattr(oi, "qty", 0) or 0)
+        if ordered_qty <= 0:
+            continue
+
+        scale = ordered_qty / yield_qty
+
+        for ri in recipe_items:
+            ingredient = db.get(Product, int(ri.ingredient_product_id))
+            if (
+                not ingredient
+                or ingredient.company_id != current_user.company_id
+                or int(getattr(ingredient, "branch_id", 0) or 0) != int(getattr(o, "branch_id", 0) or 0)
+                or not bool(getattr(ingredient, "is_active", True))
+            ):
+                raise HTTPException(status_code=400, detail="Ingrediente inválido na ficha técnica")
+
+            location_id = int(getattr(ingredient, "default_location_id", 0) or 0)
+            if location_id <= 0:
+                raise HTTPException(status_code=400, detail="Ingrediente sem local padrão de stock")
+
+            base_unit = None
+            attrs = getattr(ingredient, "attributes", None) or {}
+            if isinstance(attrs, dict):
+                base_unit = attrs.get("base_unit")
+
+            recipe_unit = str(getattr(ri, "unit", "un") or "un")
+            recipe_qty = float(getattr(ri, "qty", 0) or 0)
+            if recipe_qty <= 0:
+                continue
+
+            waste = float(getattr(ri, "waste_percent", 0) or 0)
+            if waste < 0:
+                waste = 0
+
+            qty_in_base = _convert_qty(recipe_qty, recipe_unit, str(base_unit or recipe_unit))
+            qty_with_waste = qty_in_base * (1.0 + (waste / 100.0))
+            consume_qty = round(qty_with_waste * scale, 3)
+            if consume_qty <= 0:
+                continue
+
+            stock = _get_or_create_stock_row(
+                db,
+                company_id=current_user.company_id,
+                branch_id=int(getattr(o, "branch_id", current_user.branch_id) or current_user.branch_id),
+                product_id=int(ingredient.id),
+                location_id=location_id,
+            )
+            before = float(getattr(stock, "qty_on_hand", 0) or 0)
+            stock.qty_on_hand = round(before - consume_qty, 3)
+            db.add(stock)
+
+            db.add(
+                StockMovement(
+                    company_id=current_user.company_id,
+                    branch_id=int(getattr(o, "branch_id", current_user.branch_id) or current_user.branch_id),
+                    product_id=int(ingredient.id),
+                    location_id=location_id,
+                    movement_type="consume_recipe",
+                    qty_delta=-consume_qty,
+                    reference_type="order",
+                    reference_id=int(o.id),
+                    notes=f"Consumo por receita do produto {int(dish.id)} (pedido {int(o.id)})",
+                    created_by=int(getattr(current_user, "id", 0) or 0) or None,
+                )
+            )
+
+    o.stock_consumed_at = datetime.utcnow()
+    db.add(o)
 
 
 def _get_order_out(db: Session, current_user: User, o: Order) -> OrderOut:
@@ -159,11 +331,15 @@ def update_order(
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
 
     data = payload.model_dump(exclude_unset=True)
+    prev_status = (getattr(o, "status", None) or "").strip().lower()
     if "status" in data and data["status"] is not None:
         st = str(data["status"]).strip().lower()
         if st not in {"open", "in_progress", "closed", "cancelled"}:
             raise HTTPException(status_code=400, detail="Status inválido")
         o.status = st
+
+        if st == "in_progress" and prev_status != "in_progress":
+            _consume_stock_for_order(db, current_user, o)
 
     db.add(o)
     db.commit()
