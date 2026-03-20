@@ -230,6 +230,38 @@ def main():
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_expense_categories_branch_id ON expense_categories(branch_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_expense_categories_name ON expense_categories(name)"))
 
+        # Seed categorias padrão (PDV3) por filial (idempotente)
+        db.execute(
+            text(
+                """
+                WITH default_categories(name) AS (
+                    VALUES
+                        ('Fornecedores'),
+                        ('Aluguel'),
+                        ('Energia'),
+                        ('Água'),
+                        ('Internet'),
+                        ('Salários'),
+                        ('Impostos'),
+                        ('Manutenção'),
+                        ('Marketing'),
+                        ('Outros')
+                )
+                INSERT INTO expense_categories (company_id, branch_id, name)
+                SELECT b.company_id, b.id, dc.name
+                FROM branches b
+                CROSS JOIN default_categories dc
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM expense_categories ec
+                    WHERE ec.company_id = b.company_id
+                      AND ec.branch_id = b.id
+                      AND ec.name = dc.name
+                );
+                """
+            )
+        )
+
         db.execute(
             text(
                 """
