@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database.connection import get_db
 from app.deps import get_current_user
 from app.models.branch import Branch
+from app.models.establishment import Establishment
 from app.models.user import User
 from app.schemas.branches import BranchCreate, BranchOut, BranchUpdate
 
@@ -32,12 +33,31 @@ def list_branches(db: Session = Depends(get_db), current_user: User = Depends(ge
 @router.get("/me", response_model=BranchOut)
 @router.get("/me/", response_model=BranchOut, include_in_schema=False)
 def get_my_branch(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if not getattr(current_user, "branch_id", None):
+    branch_id = getattr(current_user, "branch_id", None)
+
+    if not branch_id and getattr(current_user, "establishment_id", None):
+        est = db.get(Establishment, current_user.establishment_id)
+        if est and est.company_id == current_user.company_id:
+            branch_id = est.branch_id
+
+    b = db.get(Branch, branch_id) if branch_id else None
+    if not b or b.company_id != current_user.company_id:
+        b = db.scalar(
+            select(Branch)
+            .where(Branch.company_id == current_user.company_id)
+            .where(Branch.is_active == True)  # noqa: E712
+            .order_by(Branch.id.asc())
+            .limit(1)
+        )
+
+    if not b:
         raise HTTPException(status_code=404, detail="Filial não encontrada")
 
-    b = db.get(Branch, current_user.branch_id)
-    if not b or b.company_id != current_user.company_id:
-        raise HTTPException(status_code=404, detail="Filial não encontrada")
+    if getattr(current_user, "branch_id", None) != b.id:
+        current_user.branch_id = b.id
+        db.add(current_user)
+        db.commit()
+
     return b
 
 

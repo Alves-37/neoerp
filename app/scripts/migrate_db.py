@@ -698,9 +698,16 @@ def main():
         db.execute(text("ALTER TABLE companies ADD COLUMN IF NOT EXISTS address VARCHAR(255)"))
         db.execute(text("ALTER TABLE companies ADD COLUMN IF NOT EXISTS logo_url VARCHAR(500)"))
 
-        # users.username
+        # users.username - corrigir para ser único por empresa (não global)
         db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(50)"))
-        db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users (username)"))
+        # Remover índice único global se existir
+        db.execute(text("DROP INDEX IF EXISTS ix_users_username"))
+        # Criar índice composto único por empresa
+        db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_company_username ON users (company_id, username)"))
+
+        # users.email - corrigir para ser único por empresa (não global)
+        db.execute(text("DROP INDEX IF EXISTS ix_users_email"))
+        db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_company_email ON users (company_id, email)"))
 
         # users.is_active
         db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"))
