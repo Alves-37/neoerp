@@ -8,6 +8,7 @@ from app.database.connection import get_db
 from app.deps import get_current_user
 from app.models.cash_session import CashSession
 from app.models.sale import Sale
+from app.models.expense import Expense
 from app.models.user import User
 from app.schemas.cash_sessions import CashSessionCloseRequest, CashSessionOpenRequest, CashSessionOut, CashSessionPaymentTotals, CashSessionSummaryOut
 
@@ -157,7 +158,16 @@ def cash_session_summary(
         )
 
     opening_balance = float(row.opening_balance or 0)
-    expected_cash = round(opening_balance + float(cash_sales_total or 0), 2)
+    cash_expenses_total = db.scalar(
+        select(func.coalesce(func.sum(Expense.amount), 0))
+        .where(Expense.company_id == current_user.company_id)
+        .where(Expense.branch_id == int(current_user.branch_id))
+        .where(Expense.establishment_id == int(current_user.establishment_id))
+        .where(Expense.paid_cash_session_id == row.id)
+        .where(Expense.status == "paid")
+        .where(Expense.is_void.is_(False))
+    )
+    expected_cash = round(opening_balance + float(cash_sales_total or 0) - float(cash_expenses_total or 0), 2)
 
     return CashSessionSummaryOut(
         cash_session_id=row.id,
@@ -170,6 +180,7 @@ def cash_session_summary(
         closed_at=row.closed_at,
         opening_balance=opening_balance,
         cash_sales_total=float(cash_sales_total or 0),
+        cash_expenses_total=float(cash_expenses_total or 0),
         expected_cash=float(expected_cash),
         sales_count=int(getattr(totals_row, "sales_count", 0) or 0),
         gross_total=float(getattr(totals_row, "gross_total", 0) or 0),
@@ -218,7 +229,16 @@ def close_cash_session(
         .where(Sale.status.in_(paid_statuses))
     )
 
-    expected = float(row.opening_balance or 0) + float(cash_sales_total or 0)
+    cash_expenses_total = db.scalar(
+        select(func.coalesce(func.sum(Expense.amount), 0))
+        .where(Expense.company_id == current_user.company_id)
+        .where(Expense.branch_id == int(current_user.branch_id))
+        .where(Expense.establishment_id == int(current_user.establishment_id))
+        .where(Expense.paid_cash_session_id == row.id)
+        .where(Expense.status == "paid")
+        .where(Expense.is_void.is_(False))
+    )
+    expected = float(row.opening_balance or 0) + float(cash_sales_total or 0) - float(cash_expenses_total or 0)
     diff = round(counted - expected, 2)
 
     row.closing_balance_expected = expected

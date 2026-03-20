@@ -210,6 +210,61 @@ def main():
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_opened_at ON cash_sessions(opened_at)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_cash_sessions_closed_at ON cash_sessions(closed_at)"))
 
+        # expenses (despesas: contas a pagar -> pago no caixa)
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS expense_categories (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL REFERENCES companies(id),
+                    branch_id INTEGER NOT NULL REFERENCES branches(id),
+                    name VARCHAR(120) NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    CONSTRAINT uq_expense_categories_company_branch_name UNIQUE (company_id, branch_id, name)
+                );
+                """
+            )
+        )
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_expense_categories_company_id ON expense_categories(company_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_expense_categories_branch_id ON expense_categories(branch_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_expense_categories_name ON expense_categories(name)"))
+
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS expenses (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL REFERENCES companies(id),
+                    branch_id INTEGER NOT NULL REFERENCES branches(id),
+                    establishment_id INTEGER NULL REFERENCES establishments(id),
+                    category_id INTEGER NULL REFERENCES expense_categories(id),
+                    category_name VARCHAR(120) NULL,
+                    description VARCHAR(255) NOT NULL,
+                    amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    due_date DATE NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                    paid_at TIMESTAMPTZ NULL,
+                    paid_cash_session_id INTEGER NULL REFERENCES cash_sessions(id),
+                    paid_by INTEGER NULL REFERENCES users(id),
+                    is_void BOOLEAN NOT NULL DEFAULT FALSE,
+                    voided_at TIMESTAMPTZ NULL,
+                    voided_by INTEGER NULL REFERENCES users(id),
+                    void_reason VARCHAR(255) NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                """
+            )
+        )
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_expenses_company_id ON expenses(company_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_expenses_branch_id ON expenses(branch_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_expenses_establishment_id ON expenses(establishment_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_expenses_category_id ON expenses(category_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_expenses_status ON expenses(status)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_expenses_paid_cash_session_id ON expenses(paid_cash_session_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_expenses_is_void ON expenses(is_void)"))
+
         # orders: delivery/public tracking metadata
         db.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_uuid VARCHAR(64) NULL"))
         db.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_type VARCHAR(20) NOT NULL DEFAULT 'table'"))

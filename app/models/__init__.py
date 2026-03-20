@@ -4,3 +4,5 @@ from .stock_transfer import StockTransfer
 from .branch import Branch
 from .recipe import Recipe
 from .recipe_item import RecipeItem
+from .expense_category import ExpenseCategory
+from .expense import Expense

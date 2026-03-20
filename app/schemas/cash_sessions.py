@@ -52,6 +52,7 @@ class CashSessionSummaryOut(BaseModel):
 
     opening_balance: float
     cash_sales_total: float = 0
+    cash_expenses_total: float = 0
     expected_cash: float = 0
 
     sales_count: int = 0

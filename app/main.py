@@ -6,7 +6,7 @@ import logging
 import os
 import time
 
-from app.routes import auth, branches, cash_sessions, companies, customers, dashboard, debts, debug_menu, delivery_zones, establishments, fiscal_documents, legacy_public_api, orders, printers, product_categories, product_stocks, products, public_menu, quotes, reports, restaurant_tables, sales, stock_adjustments, stock_locations, stock_movements, stock_transfers, supplier_payments, supplier_purchases, suppliers, users
+from app.routes import auth, branches, cash_sessions, companies, customers, dashboard, debts, debug_menu, delivery_zones, establishments, expense_categories, expenses, fiscal_documents, legacy_public_api, orders, printers, product_categories, product_stocks, products, public_menu, quotes, reports, restaurant_tables, sales, stock_adjustments, stock_locations, stock_movements, stock_transfers, supplier_payments, supplier_purchases, suppliers, users
 from app.settings import Settings
 
 settings = Settings()
@@ -45,6 +45,8 @@ app.include_router(orders.router, prefix="/orders", tags=["orders"])
 app.include_router(sales.router, prefix="/sales", tags=["sales"])
 app.include_router(cash_sessions.router, prefix="/cash-sessions", tags=["cash-sessions"])
 app.include_router(debts.router, prefix="/debts", tags=["debts"])
+app.include_router(expense_categories.router, prefix="/expense-categories", tags=["expense-categories"])
+app.include_router(expenses.router, prefix="/expenses", tags=["expenses"])
 app.include_router(fiscal_documents.router, prefix="/fiscal-documents", tags=["fiscal-documents"])
 app.include_router(quotes.router, prefix="/quotes", tags=["quotes"])
 app.include_router(public_menu.router, prefix="/public", tags=["public"])
