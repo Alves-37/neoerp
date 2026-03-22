@@ -81,11 +81,16 @@ class PrinterBillingGenerateLaunchPayload(BaseModel):
     month: int
     establishment_id: int | None = None
     include_zero: bool = False
+    as_debt: bool = False
+    customer_id: int | None = None
+    customer_name: str | None = None
+    customer_nuit: str | None = None
 
 
 class PrinterBillingGenerateLaunchOut(BaseModel):
     ok: bool = True
-    sale_id: int
+    sale_id: int | None = None
+    debt_id: int | None = None
     total: float
 
 
@@ -122,11 +127,16 @@ class PrinterPdv3GenerateLaunchPayload(BaseModel):
     establishment_id: int | None = None
     price_per_copy: float
     cost_per_copy: float = 0
+    as_debt: bool = False
+    customer_id: int | None = None
+    customer_name: str | None = None
+    customer_nuit: str | None = None
 
 
 class PrinterPdv3GenerateLaunchOut(BaseModel):
     ok: bool = True
-    sale_id: int
+    sale_id: int | None = None
+    debt_id: int | None = None
     total: float
     copies_new: int
     copies_billed_to: int

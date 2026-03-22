@@ -10,4 +10,6 @@ def get_default_branches() -> list[tuple[str, str]]:
         ("Filial Serviços", "services"),
         ("Filial Farmácia", "pharmacy"),
         ("Filial Reprografia", "reprography"),
+        ("Filial Eletrônica", "electronics"),
+        ("Filial Ferragem", "hardware"),
     ]

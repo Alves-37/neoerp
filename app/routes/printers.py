@@ -12,6 +12,9 @@ from app.database.connection import get_db
 from app.deps import get_current_user
 from app.models.branch import Branch
 from app.models.cash_session import CashSession
+from app.models.customer import Customer
+from app.models.debt import Debt
+from app.models.debt_item import DebtItem
 from app.models.printer import (
     Printer,
     PrinterBillingRegistry,
@@ -52,6 +55,105 @@ from app.schemas.printers import (
 )
 
 router = APIRouter()
+
+
+def _resolve_debt_customer_info(
+    db: Session,
+    current_user: User,
+    *,
+    customer_id: int | None,
+    customer_name: str | None,
+    customer_nuit: str | None,
+) -> tuple[int | None, str | None, str | None]:
+    resolved_id: int | None = None
+    resolved_name: str | None = None
+    resolved_nuit: str | None = None
+    if customer_id:
+        cust = db.get(Customer, int(customer_id))
+        if not cust or cust.company_id != current_user.company_id or cust.branch_id != int(current_user.branch_id):
+            raise HTTPException(status_code=404, detail="Cliente não encontrado")
+        resolved_id = cust.id
+        resolved_name = cust.name
+        resolved_nuit = cust.nuit
+    else:
+        resolved_name = (customer_name or "").strip() or None
+        resolved_nuit = (customer_nuit or "").strip() or None
+    if not resolved_id and not resolved_name:
+        raise HTTPException(status_code=400, detail="Informe o cliente para registrar a dívida")
+    return resolved_id, resolved_name, resolved_nuit
+
+
+def _create_open_debt_print_lines(
+    db: Session,
+    current_user: User,
+    *,
+    business_type: str,
+    include_tax: bool,
+    customer_id: int | None,
+    customer_name: str | None,
+    customer_nuit: str | None,
+    lines: list[tuple[int, float, float, float]],
+) -> Debt:
+    """lines: (product_id, qty, unit price at debt, unit cost at debt)"""
+    net_total = 0.0
+    tax_total = 0.0
+    items_to_create: list[DebtItem] = []
+    for product_id, qty, price, cost in lines:
+        product = db.get(Product, int(product_id))
+        if (
+            not product
+            or product.company_id != current_user.company_id
+            or getattr(product, "branch_id", None) != current_user.branch_id
+            or (product.business_type or "").strip().lower() != business_type
+        ):
+            raise HTTPException(status_code=400, detail="Produto inválido para este tipo de negócio")
+        qty_f = float(qty or 0)
+        if qty_f <= 0:
+            raise HTTPException(status_code=400, detail="Quantidade inválida")
+        price_f = float(price or 0)
+        cost_f = float(cost or 0)
+        line_net = round(price_f * qty_f, 2)
+        rate = float(getattr(product, "tax_rate", 0) or 0)
+        line_tax = round(line_net * (rate / 100.0), 2) if include_tax and rate > 0 else 0.0
+        line_total = round(line_net + line_tax, 2)
+        net_total = round(net_total + line_net, 2)
+        tax_total = round(tax_total + line_tax, 2)
+        items_to_create.append(
+            DebtItem(
+                company_id=current_user.company_id,
+                branch_id=int(current_user.branch_id),
+                debt_id=0,
+                product_id=int(product_id),
+                qty=qty_f,
+                price_at_debt=price_f,
+                cost_at_debt=cost_f,
+                line_total=line_total,
+            )
+        )
+    gross_total = round(net_total + tax_total, 2)
+    debt = Debt(
+        company_id=current_user.company_id,
+        branch_id=int(current_user.branch_id),
+        cashier_id=current_user.id,
+        customer_id=customer_id,
+        customer_name=customer_name,
+        customer_nuit=customer_nuit,
+        currency="MZN",
+        total=gross_total,
+        net_total=net_total,
+        tax_total=tax_total,
+        include_tax=include_tax,
+        status="open",
+        sale_id=None,
+        created_at=datetime.utcnow(),
+        paid_at=None,
+    )
+    db.add(debt)
+    db.flush()
+    for item in items_to_create:
+        item.debt_id = debt.id
+        db.add(item)
+    return debt
 
 
 def _month_window(year: int, month: int) -> tuple[datetime, datetime]:
@@ -759,19 +861,7 @@ def generate_pdv3_billing_launch(
 
     est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=payload.establishment_id)
 
-    # Ensure cash session open (ERP invariant)
-    cash_session = db.scalar(
-        select(CashSession)
-        .where(CashSession.company_id == current_user.company_id)
-        .where(CashSession.branch_id == int(current_user.branch_id))
-        .where(CashSession.establishment_id == int(est_id))
-        .where(CashSession.opened_by == current_user.id)
-        .where(CashSession.status == "open")
-        .order_by(CashSession.id.desc())
-        .limit(1)
-    )
-    if not cash_session:
-        raise HTTPException(status_code=409, detail="Caixa fechado. Abra o caixa para gerar o lançamento")
+    as_debt = bool(getattr(payload, "as_debt", False))
 
     # Compute copies for this printer
     computed = _pdv3_compute_monthly_copies(
@@ -809,54 +899,87 @@ def generate_pdv3_billing_launch(
         business_type=business_type,
     )
 
-    sale = Sale(
-        company_id=current_user.company_id,
-        branch_id=int(current_user.branch_id),
-        establishment_id=int(est_id),
-        cashier_id=current_user.id,
-        cash_session_id=int(cash_session.id),
-        business_type=business_type,
-        total=float(total),
-        net_total=float(total),
-        tax_total=0.0,
-        include_tax=False,
-        paid=float(total),
-        change=0.0,
-        payment_method="internal",
-        status="paid",
-        sale_channel="printer",
-        table_number=None,
-        seat_number=None,
-        created_at=datetime.utcnow(),
-    )
-    db.add(sale)
-    db.flush()
+    if as_debt:
+        cid, cname, cnuit = _resolve_debt_customer_info(
+            db,
+            current_user,
+            customer_id=payload.customer_id,
+            customer_name=payload.customer_name,
+            customer_nuit=payload.customer_nuit,
+        )
+        debt = _create_open_debt_print_lines(
+            db,
+            current_user,
+            business_type=business_type,
+            include_tax=False,
+            customer_id=cid,
+            customer_name=cname,
+            customer_nuit=cnuit,
+            lines=[(int(product.id), 1.0, float(total), float(cost_total))],
+        )
+        sale = None
+    else:
+        cash_session = db.scalar(
+            select(CashSession)
+            .where(CashSession.company_id == current_user.company_id)
+            .where(CashSession.branch_id == int(current_user.branch_id))
+            .where(CashSession.establishment_id == int(est_id))
+            .where(CashSession.opened_by == current_user.id)
+            .where(CashSession.status == "open")
+            .order_by(CashSession.id.desc())
+            .limit(1)
+        )
+        if not cash_session:
+            raise HTTPException(status_code=409, detail="Caixa fechado. Abra o caixa para gerar o lançamento")
 
-    db.add(
-        PrinterSaleLine(
+        sale = Sale(
             company_id=current_user.company_id,
             branch_id=int(current_user.branch_id),
-            sale_id=int(sale.id),
-            printer_id=int(payload.printer_id),
-            counter_type_id=None,
-            copies=int(row.copies_new or 0),
-            unit_price=float(price),
-            line_total=float(total),
+            establishment_id=int(est_id),
+            cashier_id=current_user.id,
+            cash_session_id=int(cash_session.id),
+            business_type=business_type,
+            total=float(total),
+            net_total=float(total),
+            tax_total=0.0,
+            include_tax=False,
+            paid=float(total),
+            change=0.0,
+            payment_method="internal",
+            status="paid",
+            sale_channel="printer",
+            table_number=None,
+            seat_number=None,
+            created_at=datetime.utcnow(),
         )
-    )
+        db.add(sale)
+        db.flush()
 
-    db.add(
-        SaleItem(
-            company_id=current_user.company_id,
-            branch_id=int(current_user.branch_id),
-            sale_id=int(sale.id),
-            product_id=int(product.id),
-            qty=1.0,
-            price_at_sale=float(total),
-            cost_at_sale=float(cost_total),
-            line_total=float(total),
+        db.add(
+            PrinterSaleLine(
+                company_id=current_user.company_id,
+                branch_id=int(current_user.branch_id),
+                sale_id=int(sale.id),
+                printer_id=int(payload.printer_id),
+                counter_type_id=None,
+                copies=int(row.copies_new or 0),
+                unit_price=float(price),
+                line_total=float(total),
+            )
         )
-    )
+
+        db.add(
+            SaleItem(
+                company_id=current_user.company_id,
+                branch_id=int(current_user.branch_id),
+                sale_id=int(sale.id),
+                product_id=int(product.id),
+                qty=1.0,
+                price_at_sale=float(total),
+                cost_at_sale=float(cost_total),
+                line_total=float(total),
+            )
+        )
 
     # Upsert registry
     reg = db.scalar(
@@ -887,11 +1010,15 @@ def generate_pdv3_billing_launch(
         )
 
     db.commit()
-    db.refresh(sale)
+    if sale is not None:
+        db.refresh(sale)
+    else:
+        db.refresh(debt)
 
     return PrinterPdv3GenerateLaunchOut(
         ok=True,
-        sale_id=int(sale.id),
+        sale_id=int(sale.id) if sale is not None else None,
+        debt_id=int(debt.id) if as_debt else None,
         total=float(total),
         copies_new=int(row.copies_new or 0),
         copies_billed_to=int(new_copies_to),
@@ -1048,18 +1175,7 @@ def generate_billing_launch(
     if business_type == "reprografia":
         business_type = "reprography"
 
-    cash_session = db.scalar(
-        select(CashSession)
-        .where(CashSession.company_id == current_user.company_id)
-        .where(CashSession.branch_id == int(current_user.branch_id))
-        .where(CashSession.establishment_id == int(est_id))
-        .where(CashSession.opened_by == current_user.id)
-        .where(CashSession.status == "open")
-        .order_by(CashSession.id.desc())
-        .limit(1)
-    )
-    if not cash_session:
-        raise HTTPException(status_code=409, detail="Caixa fechado. Abra o caixa para gerar o lançamento")
+    as_debt = bool(getattr(payload, "as_debt", False))
 
     # Build sale items from billing lines (only excess)
     contracts_by_key: dict[tuple[int, int], PrinterContract] = {
@@ -1140,6 +1256,42 @@ def generate_billing_launch(
     if not items:
         raise HTTPException(status_code=400, detail="Sem excedentes para lançar")
 
+    if as_debt:
+        cid, cname, cnuit = _resolve_debt_customer_info(
+            db,
+            current_user,
+            customer_id=payload.customer_id,
+            customer_name=payload.customer_name,
+            customer_nuit=payload.customer_nuit,
+        )
+        debt_lines = [(int(it.product_id), float(it.qty), float(it.price_at_sale), float(it.cost_at_sale)) for it in items]
+        debt = _create_open_debt_print_lines(
+            db,
+            current_user,
+            business_type=business_type,
+            include_tax=False,
+            customer_id=cid,
+            customer_name=cname,
+            customer_nuit=cnuit,
+            lines=debt_lines,
+        )
+        db.commit()
+        db.refresh(debt)
+        return PrinterBillingGenerateLaunchOut(ok=True, sale_id=None, debt_id=int(debt.id), total=float(debt.total))
+
+    cash_session = db.scalar(
+        select(CashSession)
+        .where(CashSession.company_id == current_user.company_id)
+        .where(CashSession.branch_id == int(current_user.branch_id))
+        .where(CashSession.establishment_id == int(est_id))
+        .where(CashSession.opened_by == current_user.id)
+        .where(CashSession.status == "open")
+        .order_by(CashSession.id.desc())
+        .limit(1)
+    )
+    if not cash_session:
+        raise HTTPException(status_code=409, detail="Caixa fechado. Abra o caixa para gerar o lançamento")
+
     sale = Sale(
         company_id=current_user.company_id,
         branch_id=int(current_user.branch_id),
@@ -1173,7 +1325,7 @@ def generate_billing_launch(
     db.commit()
     db.refresh(sale)
 
-    return PrinterBillingGenerateLaunchOut(ok=True, sale_id=int(sale.id), total=float(sale.total))
+    return PrinterBillingGenerateLaunchOut(ok=True, sale_id=int(sale.id), debt_id=None, total=float(sale.total))
 
 
 @router.post("/counter-types", response_model=PrinterCounterTypeOut)

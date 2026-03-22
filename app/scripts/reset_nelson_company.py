@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import text
 from app.database.connection import SessionLocal
+from app.services.default_branches import get_default_branches
 
 COMPANY_ID = 9
 ADMIN_USER_ID = 12  # Nelson Alfredo - owner
@@ -239,24 +240,42 @@ def reset_company():
         print("\n29. Apagando branches...")
         safe_delete(db, "branches", "DELETE FROM branches WHERE company_id = :cid", {"cid": COMPANY_ID})
 
-        # Recriar 1 filial e 1 ponto padrão (para a empresa ficar utilizável após o reset)
-        print("\n29.1. Recriando filial e ponto padrão...")
+        # Recriar todas as filiais padrão e 1 ponto principal (para a empresa ficar utilizável após o reset)
+        print("\n29.1. Recriando filiais padrão e ponto principal...")
         company_bt = db.execute(
             text("SELECT business_type FROM companies WHERE id = :cid"),
             {"cid": COMPANY_ID},
         ).scalar()
         company_bt = (company_bt or "services").strip().lower()
 
-        new_branch_id = db.execute(
-            text(
-                """
-                INSERT INTO branches (company_id, name, business_type, is_active, public_menu_enabled)
-                VALUES (:cid, :name, :bt, true, false)
-                RETURNING id
-                """
-            ),
-            {"cid": COMPANY_ID, "name": "Filial Principal", "bt": company_bt},
-        ).scalar()
+        default_branches = get_default_branches()
+        if not default_branches:
+            default_branches = [("Filial Principal", company_bt)]
+
+        created_branch_ids: dict[str, int] = {}
+        primary_branch_id: int | None = None
+        for name, bt in default_branches:
+            bt_norm = (bt or "").strip().lower()
+            b_id = db.execute(
+                text(
+                    """
+                    INSERT INTO branches (company_id, name, business_type, is_active, public_menu_enabled)
+                    VALUES (:cid, :name, :bt, true, false)
+                    RETURNING id
+                    """
+                ),
+                {"cid": COMPANY_ID, "name": name, "bt": bt_norm or company_bt},
+            ).scalar()
+            if bt_norm:
+                created_branch_ids[bt_norm] = b_id
+            if primary_branch_id is None and bt_norm == company_bt:
+                primary_branch_id = b_id
+
+        if primary_branch_id is None:
+            primary_branch_id = next(iter(created_branch_ids.values()), None)
+
+        if primary_branch_id is None:
+            raise RuntimeError("Falha ao recriar filiais padrão")
 
         new_establishment_id = db.execute(
             text(
@@ -266,19 +285,15 @@ def reset_company():
                 RETURNING id
                 """
             ),
-            {"cid": COMPANY_ID, "bid": new_branch_id, "name": "Ponto Principal"},
+            {"cid": COMPANY_ID, "bid": primary_branch_id, "name": "Ponto Principal"},
         ).scalar()
 
         db.execute(
-            text("UPDATE users SET establishment_id = :eid WHERE id = :admin_id"),
-            {"eid": new_establishment_id, "admin_id": ADMIN_USER_ID},
+            text("UPDATE users SET establishment_id = :eid, branch_id = :bid WHERE id = :admin_id"),
+            {"eid": new_establishment_id, "bid": primary_branch_id, "admin_id": ADMIN_USER_ID},
         )
 
-        db.execute(
-            text("UPDATE users SET branch_id = :bid WHERE id = :admin_id"),
-            {"bid": new_branch_id, "admin_id": ADMIN_USER_ID},
-        )
-        print(f"   Filial criada: {new_branch_id} | Ponto criado: {new_establishment_id}")
+        print(f"   Filiais criadas: {len(created_branch_ids)} | Ponto criado: {new_establishment_id}")
         
         # 30. Apagar configurações
         print("\n30. Apagando settings...")
