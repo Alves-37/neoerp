@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -54,6 +55,10 @@ class DebtOut(BaseModel):
 
     status: str
     sale_id: int | None = None
+
+    origin_source: str | None = None
+    origin_summary: str | None = None
+    origin_meta: dict[str, Any] | None = None
 
     created_at: datetime
     paid_at: datetime | None = None

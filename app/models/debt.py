@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.connection import Base
@@ -28,6 +29,11 @@ class Debt(Base):
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="open", index=True)  # open|paid|cancelled
 
     sale_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("sales.id"), nullable=True, index=True)
+
+    # Origem (ex.: faturamento de impressoras / PDV3)
+    origin_source: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    origin_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    origin_meta: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)

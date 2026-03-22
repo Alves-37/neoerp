@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from calendar import monthrange
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -93,6 +94,9 @@ def _create_open_debt_print_lines(
     customer_name: str | None,
     customer_nuit: str | None,
     lines: list[tuple[int, float, float, float]],
+    origin_source: str | None = None,
+    origin_summary: str | None = None,
+    origin_meta: dict[str, Any] | None = None,
 ) -> Debt:
     """lines: (product_id, qty, unit price at debt, unit cost at debt)"""
     net_total = 0.0
@@ -145,6 +149,9 @@ def _create_open_debt_print_lines(
         include_tax=include_tax,
         status="open",
         sale_id=None,
+        origin_source=origin_source,
+        origin_summary=origin_summary,
+        origin_meta=origin_meta,
         created_at=datetime.utcnow(),
         paid_at=None,
     )
@@ -907,6 +914,11 @@ def generate_pdv3_billing_launch(
             customer_name=payload.customer_name,
             customer_nuit=payload.customer_nuit,
         )
+        printer_entity = db.get(Printer, int(payload.printer_id))
+        serial = (getattr(printer_entity, "serial_number", None) or "").strip() or f"#{int(payload.printer_id)}"
+        brand = getattr(printer_entity, "brand", None) if printer_entity else None
+        model = getattr(printer_entity, "model", None) if printer_entity else None
+        copies_n = int(row.copies_new or 0)
         debt = _create_open_debt_print_lines(
             db,
             current_user,
@@ -916,6 +928,22 @@ def generate_pdv3_billing_launch(
             customer_name=cname,
             customer_nuit=cnuit,
             lines=[(int(product.id), 1.0, float(total), float(cost_total))],
+            origin_source="printer_pdv3",
+            origin_summary=(
+                f"Faturamento impressão (PDV3) — Série {serial} — "
+                f"{int(payload.month):02d}/{int(payload.year)} — {copies_n} cópias"
+            ),
+            origin_meta={
+                "kind": "printer_pdv3",
+                "printer_id": int(payload.printer_id),
+                "serial_number": serial,
+                "brand": brand,
+                "model": model,
+                "year": int(payload.year),
+                "month": int(payload.month),
+                "copies_new": copies_n,
+                "establishment_id": int(est_id),
+            },
         )
         sale = None
     else:
@@ -1201,6 +1229,7 @@ def generate_billing_launch(
 
     items: list[SaleItem] = []
     printer_lines: list[PrinterSaleLine] = []
+    origin_detail_lines: list[dict[str, Any]] = []
     net_total = 0.0
 
     for p in bill.printers:
@@ -1251,6 +1280,20 @@ def generate_billing_launch(
                     line_total=float(line_total),
                 )
             )
+            origin_detail_lines.append(
+                {
+                    "printer_id": int(ln.printer_id),
+                    "serial_number": p.serial_number,
+                    "brand": p.brand,
+                    "model": p.model,
+                    "counter_type_id": int(ln.counter_type_id) if ln.counter_type_id is not None else None,
+                    "counter_type_code": ln.counter_type_code,
+                    "counter_type_name": ln.counter_type_name,
+                    "excess_pages": int(qty),
+                    "unit_price": float(price),
+                    "line_total": float(line_total),
+                }
+            )
             net_total = round(float(net_total) + float(line_total), 2)
 
     if not items:
@@ -1274,6 +1317,18 @@ def generate_billing_launch(
             customer_name=cname,
             customer_nuit=cnuit,
             lines=debt_lines,
+            origin_source="printer_excess",
+            origin_summary=(
+                f"Faturamento excedentes — {int(payload.month):02d}/{int(payload.year)} — "
+                f"{len(origin_detail_lines)} linha(s)"
+            ),
+            origin_meta={
+                "kind": "printer_excess",
+                "year": int(payload.year),
+                "month": int(payload.month),
+                "establishment_id": int(est_id),
+                "lines": origin_detail_lines,
+            },
         )
         db.commit()
         db.refresh(debt)

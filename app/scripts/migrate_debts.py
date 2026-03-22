@@ -102,6 +102,15 @@ def main():
         for idx in indexes:
             db.execute(text(idx))
 
+        print("\nAdicionando colunas de origem em debts (faturamento impressoras)...")
+        for alter in (
+            "ALTER TABLE debts ADD COLUMN IF NOT EXISTS origin_source VARCHAR(40) NULL",
+            "ALTER TABLE debts ADD COLUMN IF NOT EXISTS origin_summary VARCHAR(500) NULL",
+            "ALTER TABLE debts ADD COLUMN IF NOT EXISTS origin_meta JSONB NULL",
+        ):
+            db.execute(text(alter))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_debts_origin_source ON debts(origin_source)"))
+
         db.commit()
 
         # Verificar resultado final
