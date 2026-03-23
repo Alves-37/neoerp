@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
@@ -124,3 +125,40 @@ def switch_my_establishment(
     db.add(current_user)
     db.commit()
     return row
+
+
+@router.delete("/{establishment_id}")
+@router.delete("/{establishment_id}/", include_in_schema=False)
+def delete_establishment(
+    establishment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas admin pode excluir pontos")
+
+    row = db.get(Establishment, int(establishment_id))
+    if not row or row.company_id != current_user.company_id:
+        raise HTTPException(status_code=404, detail="Ponto não encontrado")
+
+    # Clear user references to avoid FK violations.
+    users = db.scalars(
+        select(User)
+        .where(User.company_id == current_user.company_id)
+        .where(User.establishment_id == int(row.id))
+    ).all()
+    for u in users:
+        u.establishment_id = None
+        db.add(u)
+
+    try:
+        db.delete(row)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Não é possível excluir este ponto porque existem registros vinculados (ex: caixas, vendas, impressoras). Desative o ponto ou apague os registros primeiro.",
+        )
+
+    return {"ok": True}
