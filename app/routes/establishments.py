@@ -54,6 +54,7 @@ def list_establishments(
                 branch_id=int(effective_branch_id),
                 name="Ponto Principal",
                 is_active=True,
+                is_default=True,
             )
             db.add(row)
             db.commit()
@@ -121,26 +122,67 @@ def switch_my_establishment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if not _is_admin(current_user):
-        raise HTTPException(status_code=403, detail="Apenas admin pode trocar de ponto")
+    role = (getattr(current_user, "role", "") or "").strip().lower()
+    if role in {"admin", "owner"}:
+        default_establishment_id = _get_branch_default_establishment_id(db, company_id=current_user.company_id, branch_id=current_user.branch_id)
+        current_user.establishment_id = default_establishment_id
+        db.add(current_user)
+        db.commit()
+        row = db.get(Establishment, default_establishment_id)
+        return row
+    else:
+        if not getattr(current_user, "branch_id", None):
+            raise HTTPException(status_code=400, detail="Filial inválida")
 
-    if not getattr(current_user, "branch_id", None):
-        raise HTTPException(status_code=400, detail="Filial inválida")
+        row = db.get(Establishment, int(payload.establishment_id))
+        if not row or row.company_id != current_user.company_id:
+            raise HTTPException(status_code=404, detail="Ponto não encontrado")
 
-    row = db.get(Establishment, int(payload.establishment_id))
-    if not row or row.company_id != current_user.company_id:
-        raise HTTPException(status_code=404, detail="Ponto não encontrado")
+        if int(row.branch_id) != int(current_user.branch_id):
+            raise HTTPException(status_code=400, detail="Ponto não pertence à filial atual")
 
-    if int(row.branch_id) != int(current_user.branch_id):
-        raise HTTPException(status_code=400, detail="Ponto não pertence à filial atual")
+        if not getattr(row, "is_active", True):
+            raise HTTPException(status_code=400, detail="Ponto inativo")
 
-    if not getattr(row, "is_active", True):
-        raise HTTPException(status_code=400, detail="Ponto inativo")
+        current_user.establishment_id = row.id
+        db.add(current_user)
+        db.commit()
+        return row
 
-    current_user.establishment_id = row.id
-    db.add(current_user)
+
+def _get_branch_default_establishment_id(db: Session, *, company_id: int, branch_id: int) -> int:
+    row = db.scalar(
+        select(Establishment)
+        .where(Establishment.company_id == int(company_id))
+        .where(Establishment.branch_id == int(branch_id))
+        .order_by(Establishment.is_default.desc(), Establishment.id.asc())
+        .limit(1)
+    )
+    if not row:
+        _ensure_default_establishment(db, company_id=company_id, branch_id=branch_id)
+        row = db.scalar(
+            select(Establishment)
+            .where(Establishment.company_id == int(company_id))
+            .where(Establishment.branch_id == int(branch_id))
+            .order_by(Establishment.is_default.desc(), Establishment.id.asc())
+            .limit(1)
+        )
+    if not row:
+        raise HTTPException(status_code=400, detail="Ponto padrão não encontrado")
+    return int(row.id)
+
+
+def _ensure_default_establishment(db: Session, *, company_id: int, branch_id: int) -> None:
+    row = Establishment(
+        company_id=company_id,
+        branch_id=branch_id,
+        name="Ponto Principal",
+        is_active=True,
+        is_default=True,
+    )
+    db.add(row)
     db.commit()
-    return row
+    db.refresh(row)
 
 
 @router.delete("/{establishment_id}")

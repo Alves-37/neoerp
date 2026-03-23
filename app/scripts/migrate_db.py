@@ -112,6 +112,7 @@ def main():
         )
 
         # Ensure exactly one default establishment per branch (choose lowest id if none marked).
+        db.execute(text("UPDATE establishments SET is_default = FALSE"))
         db.execute(
             text(
                 """
