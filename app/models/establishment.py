@@ -16,4 +16,6 @@ class Establishment(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
 
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

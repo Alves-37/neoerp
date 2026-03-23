@@ -6,6 +6,7 @@ from pydantic import BaseModel
 class EstablishmentBase(BaseModel):
     name: str
     is_active: bool = True
+    is_default: bool = False
 
 
 class EstablishmentCreate(EstablishmentBase):
@@ -15,6 +16,7 @@ class EstablishmentCreate(EstablishmentBase):
 class EstablishmentUpdate(BaseModel):
     name: str | None = None
     is_active: bool | None = None
+    is_default: bool | None = None
 
 
 class EstablishmentOut(EstablishmentBase):

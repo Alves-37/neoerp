@@ -84,6 +84,8 @@ def main():
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_establishments_branch_id ON establishments(branch_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_establishments_is_active ON establishments(is_active)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_establishments_name ON establishments(name)"))
+        db.execute(text("ALTER TABLE establishments ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_establishments_is_default ON establishments(is_default)"))
 
         # ensure establishment_id columns exist
         db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS establishment_id INTEGER NULL REFERENCES establishments(id)"))
@@ -104,6 +106,21 @@ def main():
                 FROM branches b
                 WHERE NOT EXISTS (
                     SELECT 1 FROM establishments e WHERE e.branch_id = b.id
+                );
+                """
+            )
+        )
+
+        # Ensure exactly one default establishment per branch (choose lowest id if none marked).
+        db.execute(
+            text(
+                """
+                UPDATE establishments e
+                SET is_default = TRUE
+                WHERE e.id IN (
+                    SELECT MIN(id)
+                    FROM establishments
+                    GROUP BY branch_id
                 );
                 """
             )

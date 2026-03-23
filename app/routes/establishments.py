@@ -44,6 +44,22 @@ def list_establishments(
         .where(Establishment.branch_id == effective_branch_id)
         .order_by(Establishment.name.asc(), Establishment.id.asc())
     ).all()
+
+    if not rows:
+        # Guarantee each branch has at least one default point.
+        # This keeps the system usable even if the branch was created without establishments.
+        if _is_admin(current_user):
+            row = Establishment(
+                company_id=current_user.company_id,
+                branch_id=int(effective_branch_id),
+                name="Ponto Principal",
+                is_active=True,
+            )
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+            rows = [row]
+
     return rows
 
 
@@ -160,5 +176,7 @@ def delete_establishment(
             status_code=409,
             detail="Não é possível excluir este ponto porque existem registros vinculados (ex: caixas, vendas, impressoras). Desative o ponto ou apague os registros primeiro.",
         )
+
+    _ensure_default_establishment(db, company_id=current_user.company_id, branch_id=int(row.branch_id))
 
     return {"ok": True}
