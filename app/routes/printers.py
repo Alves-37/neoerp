@@ -516,16 +516,31 @@ def _ensure_admin(current_user: User) -> None:
         raise HTTPException(status_code=403, detail="Sem permissão")
 
 
-def _get_effective_establishment_id(*, current_user: User, establishment_id: int | None) -> int:
+def _get_effective_establishment_id(*, db: Session, current_user: User, establishment_id: int | None) -> int:
     role = (getattr(current_user, "role", "") or "").strip().lower()
     is_admin = role in {"admin", "owner"}
 
     # Allow non-admin users (ex: cashier/employee) to operate on the establishment selected in the UI
     # when they don't have a fixed establishment bound to their user record.
     if establishment_id is not None:
-        if not is_admin and getattr(current_user, "establishment_id", None) is not None:
-            if int(current_user.establishment_id) != int(establishment_id):
+        if not is_admin:
+            # If the employee has a fixed establishment, allow only that one.
+            if getattr(current_user, "establishment_id", None) is not None:
+                if int(current_user.establishment_id) != int(establishment_id):
+                    raise HTTPException(status_code=403, detail="Ponto inválido para este utilizador")
+                return int(establishment_id)
+
+            # If the employee does NOT have a fixed establishment, allow any establishment
+            # inside the current branch/company.
+            from app.models.establishment import Establishment
+
+            est = db.get(Establishment, int(establishment_id))
+            if (not est) or (est.company_id != current_user.company_id):
+                raise HTTPException(status_code=404, detail="Ponto não encontrado")
+            if int(est.branch_id) != int(current_user.branch_id):
                 raise HTTPException(status_code=403, detail="Ponto inválido para este utilizador")
+            return int(establishment_id)
+
         return int(establishment_id)
 
     if getattr(current_user, "establishment_id", None) is None:
@@ -542,7 +557,7 @@ def list_printers(
     current_user: User = Depends(get_current_user),
 ):
     _ensure_reprography_branch(db, current_user)
-    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=establishment_id)
+    est_id = _get_effective_establishment_id(db=db, current_user=current_user, establishment_id=establishment_id)
 
     stmt = (
         select(Printer)
@@ -570,7 +585,7 @@ def create_printer(
     if not serial:
         raise HTTPException(status_code=400, detail="Número de série inválido")
 
-    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=payload.establishment_id)
+    est_id = _get_effective_establishment_id(db=db, current_user=current_user, establishment_id=payload.establishment_id)
 
     row = Printer(
         company_id=current_user.company_id,
@@ -607,7 +622,7 @@ def update_reading(
     if not row or row.company_id != current_user.company_id:
         raise HTTPException(status_code=404, detail="Leitura não encontrada")
 
-    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=payload.establishment_id)
+    est_id = _get_effective_establishment_id(db=db, current_user=current_user, establishment_id=payload.establishment_id)
 
     if row.branch_id != int(current_user.branch_id) or row.establishment_id != est_id:
         raise HTTPException(status_code=400, detail="Leitura não pertence ao ponto")
@@ -846,7 +861,7 @@ def get_pdv3_monthly_billing(
     current_user: User = Depends(get_current_user),
 ):
     _ensure_reprography_branch(db, current_user)
-    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=establishment_id)
+    est_id = _get_effective_establishment_id(db=db, current_user=current_user, establishment_id=establishment_id)
 
     rows = _pdv3_compute_monthly_copies(db, current_user=current_user, establishment_id=est_id, year=int(year), month=int(month))
     total_copies = sum(int(r.copies_total or 0) for r in rows)
@@ -871,7 +886,7 @@ def generate_pdv3_billing_launch(
 ):
     _ensure_reprography_branch(db, current_user)
 
-    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=payload.establishment_id)
+    est_id = _get_effective_establishment_id(db=db, current_user=current_user, establishment_id=payload.establishment_id)
 
     as_debt = bool(getattr(payload, "as_debt", False))
 
@@ -1068,7 +1083,7 @@ def list_pdv3_readings(
     current_user: User = Depends(get_current_user),
 ):
     _ensure_reprography_branch(db, current_user)
-    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=establishment_id)
+    est_id = _get_effective_establishment_id(db=db, current_user=current_user, establishment_id=establishment_id)
 
     total_counter_type = _get_or_create_pdv3_total_counter_type(
         db,
@@ -1100,7 +1115,7 @@ def create_pdv3_reading(
 ):
     _ensure_reprography_branch(db, current_user)
 
-    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=payload.establishment_id)
+    est_id = _get_effective_establishment_id(db=db, current_user=current_user, establishment_id=payload.establishment_id)
     total_counter_type = _get_or_create_pdv3_total_counter_type(
         db,
         current_user=current_user,
@@ -1158,7 +1173,7 @@ def list_counter_types(
     current_user: User = Depends(get_current_user),
 ):
     _ensure_reprography_branch(db, current_user)
-    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=establishment_id)
+    est_id = _get_effective_establishment_id(db=db, current_user=current_user, establishment_id=establishment_id)
 
     stmt = (
         select(PrinterCounterType)
@@ -1182,7 +1197,7 @@ def get_monthly_billing(
     current_user: User = Depends(get_current_user),
 ):
     _ensure_reprography_branch(db, current_user)
-    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=establishment_id)
+    est_id = _get_effective_establishment_id(db=db, current_user=current_user, establishment_id=establishment_id)
     return _compute_monthly_billing(db, current_user=current_user, establishment_id=est_id, year=int(year), month=int(month))
 
 
@@ -1195,7 +1210,7 @@ def generate_billing_launch(
     _ensure_reprography_branch(db, current_user)
     _ensure_admin(current_user)
 
-    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=payload.establishment_id)
+    est_id = _get_effective_establishment_id(db=db, current_user=current_user, establishment_id=payload.establishment_id)
     bill = _compute_monthly_billing(db, current_user=current_user, establishment_id=est_id, year=int(payload.year), month=int(payload.month))
 
     if not getattr(current_user, "establishment_id", None) and est_id is None:
@@ -1402,7 +1417,7 @@ def create_counter_type(
     if not code or not name:
         raise HTTPException(status_code=400, detail="Dados inválidos")
 
-    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=payload.establishment_id)
+    est_id = _get_effective_establishment_id(db=db, current_user=current_user, establishment_id=payload.establishment_id)
 
     exists = db.scalar(
         select(PrinterCounterType)
@@ -1536,7 +1551,7 @@ def list_contracts(
     current_user: User = Depends(get_current_user),
 ):
     _ensure_reprography_branch(db, current_user)
-    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=establishment_id)
+    est_id = _get_effective_establishment_id(db=db, current_user=current_user, establishment_id=establishment_id)
 
     stmt = (
         select(PrinterContract)
@@ -1560,7 +1575,7 @@ def create_contract(
     _ensure_reprography_branch(db, current_user)
     _ensure_admin(current_user)
 
-    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=payload.establishment_id)
+    est_id = _get_effective_establishment_id(db=db, current_user=current_user, establishment_id=payload.establishment_id)
 
     printer = db.get(Printer, int(payload.printer_id))
     if not printer or printer.company_id != current_user.company_id:
@@ -1644,7 +1659,7 @@ def list_readings(
     current_user: User = Depends(get_current_user),
 ):
     _ensure_reprography_branch(db, current_user)
-    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=establishment_id)
+    est_id = _get_effective_establishment_id(db=db, current_user=current_user, establishment_id=establishment_id)
 
     stmt = (
         select(PrinterReading)
@@ -1671,7 +1686,7 @@ def create_reading(
 ):
     _ensure_reprography_branch(db, current_user)
 
-    est_id = _get_effective_establishment_id(current_user=current_user, establishment_id=payload.establishment_id)
+    est_id = _get_effective_establishment_id(db=db, current_user=current_user, establishment_id=payload.establishment_id)
 
     printer = db.get(Printer, int(payload.printer_id))
     if not printer or printer.company_id != current_user.company_id:
