@@ -520,7 +520,12 @@ def _get_effective_establishment_id(*, current_user: User, establishment_id: int
     role = (getattr(current_user, "role", "") or "").strip().lower()
     is_admin = role in {"admin", "owner"}
 
-    if is_admin and establishment_id is not None:
+    # Allow non-admin users (ex: cashier/employee) to operate on the establishment selected in the UI
+    # when they don't have a fixed establishment bound to their user record.
+    if establishment_id is not None:
+        if not is_admin and getattr(current_user, "establishment_id", None) is not None:
+            if int(current_user.establishment_id) != int(establishment_id):
+                raise HTTPException(status_code=403, detail="Ponto inválido para este utilizador")
         return int(establishment_id)
 
     if getattr(current_user, "establishment_id", None) is None:
