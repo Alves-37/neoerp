@@ -39,6 +39,7 @@ class Product(Base):
     track_stock: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_service: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sold_by_weight: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     show_in_menu: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
 
