@@ -38,19 +38,51 @@ def render_pdf(title: str, elements: list, on_page=None) -> bytes:
 
 
 def _company_info_table(company: dict) -> Table:
-    data = [
-        ['Empresa:', company.get('name', '-')],
-        ['NUIT:', company.get('nuit', '-')],
-    ]
+    name = (company.get('name') or '-').strip() if isinstance(company.get('name'), str) else (company.get('name') or '-')
+    nuit = (company.get('nuit') or '-').strip() if isinstance(company.get('nuit'), str) else (company.get('nuit') or '-')
+    phone = (company.get('phone') or '').strip() if isinstance(company.get('phone'), str) else ''
+    email = (company.get('email') or '').strip() if isinstance(company.get('email'), str) else ''
+    address = (company.get('address') or '').strip() if isinstance(company.get('address'), str) else ''
+    city = (company.get('city') or '').strip() if isinstance(company.get('city'), str) else ''
+
+    addr_line = " · ".join([x for x in [address, city] if x])
+
+    data = [['Empresa:', name], ['NUIT:', nuit]]
+    if addr_line:
+        data.append(['Endereço:', addr_line])
+    if phone:
+        data.append(['Telefone:', phone])
+    if email:
+        data.append(['E-mail:', email])
     table = Table(data, colWidths=[30*mm, None])
     table.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
         ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
         ('ALIGN', (1, 0), (1, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#111827')),
     ]))
     return table
+
+
+def _meta_table(rows: list[tuple[str, str]]) -> Table:
+    """Small key/value table used for document metadata blocks."""
+    styles = getSampleStyleSheet()
+    data = []
+    for k, v in (rows or []):
+        key = Paragraph(f"<b>{k}</b>", ParagraphStyle('metaK', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#374151')))
+        val = Paragraph(str(v or '-'), ParagraphStyle('metaV', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#111827')))
+        data.append([key, val])
+    t = Table(data, colWidths=[32 * mm, None])
+    t.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
+        ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+        ('TOPPADDING', (0, 0), (-1, -1), 2),
+    ]))
+    return t
 
 
 def _header_block(title: str, subtitle: str, company: dict) -> Table:
@@ -236,7 +268,7 @@ def daily_z_pdf_elements(data: dict, company: dict) -> list:
             ('Total', _fmt_money(data.get('gross_total', 0), currency)),
         ]),
         Spacer(0, 8 * mm),
-        Paragraph('Por tipo de documento', ParagraphStyle('sec', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor('#e2e8f0'))),
+        Paragraph('Por tipo de documento', ParagraphStyle('sec', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor('#111827'))),
         Spacer(0, 3 * mm),
         _styled_table(
             ['Tipo', 'Qtd', 'Total'],
@@ -245,7 +277,7 @@ def daily_z_pdf_elements(data: dict, company: dict) -> list:
             aligns=['LEFT', 'CENTER', 'RIGHT'],
         ),
         Spacer(0, 8 * mm),
-        Paragraph('IVA por taxa', ParagraphStyle('sec2', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor('#e2e8f0'))),
+        Paragraph('IVA por taxa', ParagraphStyle('sec2', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor('#111827'))),
         Spacer(0, 3 * mm),
         _styled_table(
             ['Taxa', 'Incidência', 'IVA', 'Total'],
@@ -262,6 +294,80 @@ def daily_z_pdf_elements(data: dict, company: dict) -> list:
             aligns=['RIGHT', 'RIGHT', 'RIGHT', 'RIGHT'],
         ),
     ]
+    return elements
+
+
+def cash_session_close_pdf_elements(data: dict, company: dict) -> list:
+    """PDF elements for a single cash session close report."""
+    styles = getSampleStyleSheet()
+    currency = (company.get('currency') or '').strip()
+
+    meta_rows = [
+        ("Data do Fechamento", data.get("closed_at") or "-"),
+        ("Funcionário", data.get("cashier_name") or "-"),
+        ("Nº do Fechamento", str(data.get("id") or "-")),
+        ("Estado", _status_label(data.get("status"))),
+    ]
+
+    opening = float(data.get("opening") or 0)
+    cash_sales_total = float(data.get("cash_sales_total") or 0)
+    cash_expenses_total = float(data.get("cash_expenses_total") or 0)
+    expected = float(data.get("expected") or 0)
+    counted = float(data.get("counted") or 0)
+    difference = float(data.get("difference") or 0)
+
+    elements = [
+        _header_block('Fechamento de Caixa', f"Sessão #{data.get('id') or '-'} (Africa/Maputo)", company),
+        Spacer(0, 6 * mm),
+        _meta_table(meta_rows),
+        Spacer(0, 6 * mm),
+        _metric_cards([
+            ('Esperado (dinheiro)', _fmt_money(expected, currency)),
+            ('Contado', _fmt_money(counted, currency)),
+            ('Diferença', _fmt_money(difference, currency)),
+            ('Vendas (dinheiro)', _fmt_money(cash_sales_total, currency)),
+        ]),
+        Spacer(0, 8 * mm),
+        Paragraph('Resumo financeiro', ParagraphStyle('secCashSess', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor('#111827'))),
+        Spacer(0, 3 * mm),
+        _styled_table(
+            ['Descrição', 'Valor'],
+            [
+                ['Abertura (fundo de caixa)', _fmt_money(opening, currency)],
+                ['Vendas em dinheiro', _fmt_money(cash_sales_total, currency)],
+                ['Despesas em dinheiro', _fmt_money(-cash_expenses_total, currency)],
+                ['Esperado (dinheiro)', _fmt_money(expected, currency)],
+                ['Contado', _fmt_money(counted, currency)],
+                ['Diferença', _fmt_money(difference, currency)],
+            ],
+            col_widths=[None, 45 * mm],
+            aligns=['LEFT', 'RIGHT'],
+        ),
+    ]
+
+    expenses = data.get('expenses') or []
+    if expenses:
+        elements.extend([
+            Spacer(0, 8 * mm),
+            Paragraph('Despesas do período', ParagraphStyle('secCashSessExp', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor('#111827'))),
+            Spacer(0, 3 * mm),
+            _styled_table(
+                ['Categoria', 'Descrição', 'Valor'],
+                [[(e.get('category') or '-'), (e.get('description') or ''), _fmt_money(e.get('amount') or 0, currency)] for e in expenses],
+                col_widths=[36 * mm, None, 28 * mm],
+                aligns=['LEFT', 'LEFT', 'RIGHT'],
+            ),
+        ])
+
+    notes = (data.get('notes') or '').strip()
+    if notes:
+        elements.extend([
+            Spacer(0, 8 * mm),
+            Paragraph('Observações', ParagraphStyle('secCashSessNotes', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor('#111827'))),
+            Spacer(0, 3 * mm),
+            Paragraph(notes, ParagraphStyle('cashSessNotes', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#111827'))),
+        ])
+
     return elements
 
 
