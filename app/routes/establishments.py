@@ -124,11 +124,23 @@ def switch_my_establishment(
 ):
     role = (getattr(current_user, "role", "") or "").strip().lower()
     if role in {"admin", "owner"}:
-        default_establishment_id = _get_branch_default_establishment_id(db, company_id=current_user.company_id, branch_id=current_user.branch_id)
-        current_user.establishment_id = default_establishment_id
+        if payload.establishment_id is None:
+            raise HTTPException(status_code=400, detail="Ponto inválido")
+
+        row = db.get(Establishment, int(payload.establishment_id))
+        if not row:
+            raise HTTPException(status_code=404, detail="Ponto não encontrado")
+        if int(row.company_id) != int(current_user.company_id):
+            raise HTTPException(status_code=403, detail="Ponto inválido")
+        if int(row.branch_id) != int(current_user.branch_id):
+            raise HTTPException(status_code=403, detail="Ponto inválido")
+        if getattr(row, "is_active", True) is False:
+            raise HTTPException(status_code=400, detail="Ponto inválido")
+
+        current_user.establishment_id = int(row.id)
         db.add(current_user)
         db.commit()
-        row = db.get(Establishment, default_establishment_id)
+        db.refresh(current_user)
         return row
     else:
         if not getattr(current_user, "branch_id", None):
