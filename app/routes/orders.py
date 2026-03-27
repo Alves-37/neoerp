@@ -446,8 +446,18 @@ def close_order(
         
         # Deduzir estoque do produto
         product = db.get(Product, i.product_id)
-        if product and product.track_stock and product.stock_qty is not None:
-            product.stock_qty = max(0, product.stock_qty - i.qty)
+        if product and product.track_stock:
+            # Buscar estoque do produto na filial atual
+            stock = db.execute(
+                select(ProductStock)
+                .where(ProductStock.company_id == current_user.company_id)
+                .where(ProductStock.branch_id == getattr(o, "branch_id", current_user.branch_id))
+                .where(ProductStock.product_id == i.product_id)
+                .where(ProductStock.location_id == product.default_location_id)
+            ).scalar_one_or_none()
+            
+            if stock and stock.quantity is not None:
+                stock.quantity = max(0, stock.quantity - i.qty)
 
     o.status = "closed"
     db.add(o)
