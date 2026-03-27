@@ -11,7 +11,7 @@ from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.order_item_option import OrderItemOption
 from app.models.product import Product
-from app.models.product_stock import ProductStock
+from app.models.restaurant_table import RestaurantTable
 from app.models.recipe import Recipe
 from app.models.recipe_item import RecipeItem
 from app.models.sale import Sale
@@ -280,6 +280,19 @@ def create_order(payload: OrderCreate, db: Session = Depends(get_db), current_us
     db.add(order)
     db.flush()
 
+    # Marcar mesa como ocupada
+    table = db.execute(
+        select(RestaurantTable)
+        .where(RestaurantTable.company_id == current_user.company_id)
+        .where(RestaurantTable.branch_id == current_user.branch_id)
+        .where(RestaurantTable.number == payload.table_number)
+    ).scalar_one_or_none()
+    
+    if table:
+        table.status = "occupied"
+        table.current_order_id = order.id
+        table.customer_name = getattr(payload, 'customer_name', None)
+
     total = 0.0
     for it in payload.items:
         product = db.get(Product, it.product_id)
@@ -429,9 +442,28 @@ def close_order(
                 line_total=i.line_total,
             )
         )
+        
+        # Deduzir estoque do produto
+        product = db.get(Product, i.product_id)
+        if product and product.track_stock and product.stock_qty is not None:
+            product.stock_qty = max(0, product.stock_qty - i.qty)
 
     o.status = "closed"
     db.add(o)
+
+    # Liberar mesa
+    table = db.execute(
+        select(RestaurantTable)
+        .where(RestaurantTable.company_id == current_user.company_id)
+        .where(RestaurantTable.branch_id == getattr(o, "branch_id", current_user.branch_id))
+        .where(RestaurantTable.number == o.table_number)
+    ).scalar_one_or_none()
+    
+    if table:
+        table.status = "available"
+        table.current_order_id = None
+        table.customer_name = None
+
     db.commit()
 
     return {"status": "closed", "sale_id": sale.id}
