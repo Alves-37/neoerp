@@ -59,5 +59,6 @@ class CashSessionSummaryOut(BaseModel):
     gross_total: float = 0
     net_total: float = 0
     tax_total: float = 0
+    total_sales_all_methods: float = 0
 
     by_payment_method: list[CashSessionPaymentTotals] = []

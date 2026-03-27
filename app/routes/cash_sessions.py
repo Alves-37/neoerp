@@ -162,6 +162,10 @@ def cash_session_summary(
         )
 
     opening_balance = float(row.opening_balance or 0)
+    
+    # Total geral de vendas (todos os métodos de pagamento)
+    total_sales_all_methods = float(getattr(totals_row, "gross_total", 0) or 0)
+    
     cash_expenses_total = db.scalar(
         select(func.coalesce(func.sum(Expense.amount), 0))
         .where(Expense.company_id == current_user.company_id)
@@ -171,6 +175,8 @@ def cash_session_summary(
         .where(Expense.status == "paid")
         .where(Expense.is_void.is_(False))
     )
+    
+    # Esperado em dinheiro (só vendas em dinheiro)
     expected_cash = round(opening_balance + float(cash_sales_total or 0) - float(cash_expenses_total or 0), 2)
 
     return CashSessionSummaryOut(
@@ -190,6 +196,7 @@ def cash_session_summary(
         gross_total=float(getattr(totals_row, "gross_total", 0) or 0),
         net_total=float(getattr(totals_row, "net_total", 0) or 0),
         tax_total=float(getattr(totals_row, "tax_total", 0) or 0),
+        total_sales_all_methods=total_sales_all_methods,
         by_payment_method=by_payment,
     )
 
