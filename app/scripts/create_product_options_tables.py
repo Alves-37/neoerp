@@ -33,9 +33,12 @@ def create_product_options_tables():
                 option_group_id INTEGER NOT NULL REFERENCES product_option_groups(id),
                 name VARCHAR(100) NOT NULL,
                 description VARCHAR(200),
+                option_type VARCHAR(20) NOT NULL DEFAULT 'addon',
                 price_adjustment NUMERIC(10,2) NOT NULL DEFAULT 0,
                 adjustment_type VARCHAR(10) NOT NULL DEFAULT 'fixed',
                 ingredient_impact JSONB NOT NULL DEFAULT '{}',
+                ingredient_remove JSONB NOT NULL DEFAULT '{}',
+                ingredient_multiplier JSONB NOT NULL DEFAULT '{}',
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 is_active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
@@ -75,6 +78,53 @@ def create_product_options_tables():
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_sale_item_options_sale_item_id ON sale_item_options(sale_item_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_sale_item_options_option_group_id ON sale_item_options(option_group_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_sale_item_options_option_id ON sale_item_options(option_id)"))
+
+        # Tabela de receitas calculadas (snapshot para performance)
+        db.execute(text("""
+            CREATE TABLE IF NOT EXISTS sale_item_calculated_recipes (
+                id SERIAL PRIMARY KEY,
+                company_id INTEGER NOT NULL REFERENCES companies(id),
+                branch_id INTEGER NOT NULL REFERENCES branches(id),
+                sale_item_id INTEGER NOT NULL REFERENCES sale_items(id),
+                base_recipe_id INTEGER,
+                final_recipe JSONB NOT NULL DEFAULT '{}',
+                total_multiplier NUMERIC(6,3) NOT NULL DEFAULT 1.0,
+                final_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+                base_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+                options_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+                applied_options JSONB NOT NULL DEFAULT '{}',
+                calculation_version VARCHAR(20) NOT NULL DEFAULT '1.0',
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            )
+        """))
+
+        # Índices para receitas calculadas
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sale_item_calculated_recipes_company_id ON sale_item_calculated_recipes(company_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sale_item_calculated_recipes_branch_id ON sale_item_calculated_recipes(branch_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_sale_item_calculated_recipes_sale_item_id ON sale_item_calculated_recipes(sale_item_id)"))
+
+        # Tabela de opções de itens de pedido
+        db.execute(text("""
+            CREATE TABLE IF NOT EXISTS order_item_options (
+                id SERIAL PRIMARY KEY,
+                company_id INTEGER NOT NULL REFERENCES companies(id),
+                branch_id INTEGER NOT NULL REFERENCES branches(id),
+                order_item_id INTEGER NOT NULL REFERENCES order_items(id),
+                option_group_id INTEGER NOT NULL,
+                option_id INTEGER NOT NULL,
+                option_name VARCHAR(100) NOT NULL,
+                price_adjustment NUMERIC(10,2) NOT NULL DEFAULT 0,
+                ingredient_impact JSONB NOT NULL DEFAULT '{}',
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            )
+        """))
+
+        # Índices para opções de itens de pedido
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_order_item_options_company_id ON order_item_options(company_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_order_item_options_branch_id ON order_item_options(branch_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_order_item_options_order_item_id ON order_item_options(order_item_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_order_item_options_option_group_id ON order_item_options(option_group_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_order_item_options_option_id ON order_item_options(option_id)"))
 
         db.commit()
         print("✅ Tabelas de opções de produtos criadas com sucesso!")

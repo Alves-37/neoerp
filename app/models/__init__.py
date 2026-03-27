@@ -9,3 +9,5 @@ from .expense import Expense
 from .product_option_group import ProductOptionGroup
 from .product_option import ProductOption
 from .sale_item_option import SaleItemOption
+from .sale_item_calculated_recipe import SaleItemCalculatedRecipe
+from .order_item_option import OrderItemOption

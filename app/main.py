@@ -6,7 +6,7 @@ import logging
 import os
 import time
 
-from app.routes import auth, branches, cash_sessions, companies, customers, dashboard, debts, debug_menu, delivery_zones, establishments, expense_categories, expenses, fiscal_documents, legacy_public_api, orders, printers, product_categories, product_stocks, products, public_menu, quotes, reports, restaurant_tables, sales, stock_adjustments, stock_locations, stock_movements, stock_transfers, supplier_payments, supplier_purchases, suppliers, users
+from app.routes import auth, branches, cash_sessions, companies, customers, dashboard, debts, debug_menu, delivery_zones, establishments, expense_categories, expenses, fiscal_documents, legacy_public_api, orders, printers, product_categories, product_options, product_stocks, products, public_menu, quotes, reports, restaurant_tables, sales, stock_adjustments, stock_locations, stock_movements, stock_transfers, supplier_payments, supplier_purchases, suppliers, users
 from app.settings import Settings
 
 settings = Settings()
@@ -64,6 +64,7 @@ app.include_router(supplier_payments.router, prefix="/supplier-payments", tags=[
 app.include_router(product_categories.router, prefix="/product-categories", tags=["product-categories"])
 app.include_router(printers.router, prefix="/printers", tags=["printers"])
 app.include_router(products.router, prefix="/products", tags=["products"])
+app.include_router(product_options.router, prefix="/product-options", tags=["product-options"])
 app.include_router(users.router, prefix="/users", tags=["users"])
 
 os.makedirs(settings.upload_dir, exist_ok=True)

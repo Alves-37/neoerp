@@ -1,6 +1,15 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
+
+
+class OrderItemOptionCreate(BaseModel):
+    option_group_id: int
+    option_id: int
+    option_name: str
+    price_adjustment: float
+    ingredient_impact: dict[str, Any] = {}
 
 
 class OrderItemCreate(BaseModel):
@@ -8,6 +17,7 @@ class OrderItemCreate(BaseModel):
     qty: float = 1
     price_at_order: float
     cost_at_order: float
+    options: list[OrderItemOptionCreate] = []
 
 
 class OrderCreate(BaseModel):

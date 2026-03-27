@@ -9,6 +9,7 @@ from app.deps import get_current_user
 from app.models.branch import Branch
 from app.models.order import Order
 from app.models.order_item import OrderItem
+from app.models.order_item_option import OrderItemOption
 from app.models.product import Product
 from app.models.product_stock import ProductStock
 from app.models.recipe import Recipe
@@ -299,18 +300,34 @@ def create_order(payload: OrderCreate, db: Session = Depends(get_db), current_us
         line_total = round(price * qty, 2)
         total = round(total + line_total, 2)
 
-        db.add(
-            OrderItem(
-                company_id=current_user.company_id,
-                branch_id=int(current_user.branch_id),
-                order_id=order.id,
-                product_id=it.product_id,
-                qty=qty,
-                price_at_order=price,
-                cost_at_order=cost,
-                line_total=line_total,
-            )
+        # Criar OrderItem
+        order_item = OrderItem(
+            company_id=current_user.company_id,
+            branch_id=int(current_user.branch_id),
+            order_id=order.id,
+            product_id=it.product_id,
+            qty=qty,
+            price_at_order=price,
+            cost_at_order=cost,
+            line_total=line_total,
         )
+        db.add(order_item)
+        db.flush()  # Para obter o ID do order_item
+
+        # Salvar opções do item (se existirem)
+        if hasattr(it, 'options') and it.options:
+            for opt in it.options:
+                order_item_option = OrderItemOption(
+                    company_id=current_user.company_id,
+                    branch_id=int(current_user.branch_id),
+                    order_item_id=order_item.id,
+                    option_group_id=opt.option_group_id,
+                    option_id=opt.option_id,
+                    option_name=opt.option_name,
+                    price_adjustment=opt.price_adjustment,
+                    ingredient_impact=opt.ingredient_impact,
+                )
+                db.add(order_item_option)
 
     db.commit()
     db.refresh(order)
