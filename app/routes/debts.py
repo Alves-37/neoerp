@@ -23,6 +23,11 @@ from app.schemas.debts import DebtCreate, DebtItemOut, DebtOut, DebtPayPayload
 router = APIRouter()
 
 
+def _is_admin(current_user: User) -> bool:
+    role = (getattr(current_user, "role", "") or "").strip().lower()
+    return role in {"admin", "owner"}
+
+
 def _get_or_create_stock_row(db: Session, company_id: int, branch_id: int, product_id: int, location_id: int) -> ProductStock:
     row = db.scalar(
         select(ProductStock)
@@ -157,6 +162,9 @@ def cancel_debt(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Sem permissão para anular dívidas")
+
     branch = db.get(Branch, int(current_user.branch_id))
     if not branch or branch.company_id != current_user.company_id:
         raise HTTPException(status_code=400, detail="Filial inválida")
@@ -186,6 +194,9 @@ def delete_debt(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Sem permissão para apagar dívidas")
+
     branch = db.get(Branch, int(current_user.branch_id))
     if not branch or branch.company_id != current_user.company_id:
         raise HTTPException(status_code=400, detail="Filial inválida")
