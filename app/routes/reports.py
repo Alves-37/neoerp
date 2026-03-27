@@ -165,6 +165,10 @@ def vat_by_rate_report(
 ):
     local_day = _doc_local_day_expr()
 
+    effective_establishment_id: int | None = None
+    if getattr(current_user, "establishment_id", None) is not None:
+        effective_establishment_id = int(current_user.establishment_id)
+
     rows = db.execute(
         select(
             FiscalDocumentLine.tax_rate,
@@ -182,7 +186,31 @@ def vat_by_rate_report(
         .where(local_day <= end_day)
         .group_by(FiscalDocumentLine.tax_rate)
         .order_by(FiscalDocumentLine.tax_rate.asc())
-    ).all()
+    )
+    
+    if effective_establishment_id is not None:
+        rows = db.execute(
+            select(
+                FiscalDocumentLine.tax_rate,
+                func.coalesce(func.sum(FiscalDocumentLine.line_net), 0).label("net_total"),
+                func.coalesce(func.sum(FiscalDocumentLine.line_tax), 0).label("tax_total"),
+                func.coalesce(func.sum(FiscalDocumentLine.line_gross), 0).label("gross_total"),
+            )
+            .select_from(FiscalDocumentLine)
+            .join(FiscalDocument, FiscalDocument.id == FiscalDocumentLine.fiscal_document_id)
+            .join(Sale, Sale.id == FiscalDocument.sale_id)
+            .where(FiscalDocumentLine.company_id == current_user.company_id)
+            .where(FiscalDocument.company_id == current_user.company_id)
+            .where(FiscalDocument.branch_id == int(current_user.branch_id))
+            .where(FiscalDocument.status == "issued")
+            .where(local_day >= start_day)
+            .where(local_day <= end_day)
+            .where(or_(Sale.establishment_id == effective_establishment_id, Sale.establishment_id.is_(None)))
+            .group_by(FiscalDocumentLine.tax_rate)
+            .order_by(FiscalDocumentLine.tax_rate.asc())
+        ).all()
+    else:
+        rows = rows.all()
 
     return {
         "start_day": str(start_day),
