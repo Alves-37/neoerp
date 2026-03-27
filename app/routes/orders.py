@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database.connection import get_db
 from app.deps import get_current_user
 from app.models.branch import Branch
+from app.models.cash_session import CashSession
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.order_item_option import OrderItemOption
@@ -412,11 +413,23 @@ def close_order(
     paid = float(payload.paid or 0)
     change = round(max(0.0, paid - total), 2)
 
+    # Buscar cash session aberta para associar à venda
+    current_cash_session = db.scalar(
+        select(CashSession)
+        .where(CashSession.company_id == current_user.company_id)
+        .where(CashSession.branch_id == int(current_user.branch_id))
+        .where(CashSession.establishment_id == int(current_user.establishment_id))
+        .where(CashSession.status == "open")
+        .where(CashSession.opened_by == current_user.id)
+        .order_by(CashSession.opened_at.desc())
+    )
+
     sale = Sale(
         company_id=current_user.company_id,
         branch_id=int(getattr(o, "branch_id", current_user.branch_id) or current_user.branch_id),
         establishment_id=getattr(current_user, "establishment_id", None),
         cashier_id=current_user.id,
+        cash_session_id=current_cash_session.id if current_cash_session else None,
         business_type=getattr(o, "business_type", "restaurant"),
         total=total,
         paid=paid,
