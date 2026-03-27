@@ -412,6 +412,11 @@ def list_sales(
     offset: int = 0,
     branch_id: int | None = None,
     establishment_id: int | None = None,
+    status: str | None = None,
+    payment_method: str | None = None,
+    sale_channel: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -441,6 +446,17 @@ def list_sales(
 
     if role == "cashier":
         stmt = stmt.where(Sale.cashier_id == current_user.id)
+
+    if status:
+        stmt = stmt.where(Sale.status == status)
+    if payment_method:
+        stmt = stmt.where(Sale.payment_method == payment_method)
+    if sale_channel:
+        stmt = stmt.where(Sale.sale_channel == sale_channel)
+    if date_from is not None:
+        stmt = stmt.where(Sale.created_at >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(Sale.created_at <= date_to)
 
     rows = db.scalars(
         stmt.order_by(desc(Sale.id))
