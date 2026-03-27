@@ -11,6 +11,7 @@ from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.order_item_option import OrderItemOption
 from app.models.product import Product
+from app.models.product_stock import ProductStock
 from app.models.restaurant_table import RestaurantTable
 from app.models.recipe import Recipe
 from app.models.recipe_item import RecipeItem

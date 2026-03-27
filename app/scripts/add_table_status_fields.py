@@ -8,12 +8,13 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import create_engine, text
-from app.database.connection import DATABASE_URL
-from app.models import Base
+from app.settings import Settings
+
+settings = Settings()
 
 def add_table_status_fields():
     """Adiciona campos de status à tabela restaurant_tables"""
-    engine = create_engine(DATABASE_URL)
+    engine = create_engine(settings.database_url)
     
     with engine.connect() as conn:
         # Verificar se os campos já existem
