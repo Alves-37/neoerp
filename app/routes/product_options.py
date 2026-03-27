@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.database.connection import get_db
 from app.deps import get_current_user
 from app.models.branch import Branch
 from app.models.product import Product
