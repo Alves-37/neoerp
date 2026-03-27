@@ -131,6 +131,96 @@ def list_debts(
     return [_build_debt_out(db, current_user, d) for d in rows]
 
 
+@router.get("/{debt_id}", response_model=DebtOut)
+def get_debt(
+    debt_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    branch = db.get(Branch, int(current_user.branch_id))
+    if not branch or branch.company_id != current_user.company_id:
+        raise HTTPException(status_code=400, detail="Filial inválida")
+    business_type = (branch.business_type or "retail").strip().lower()
+    if business_type == "restaurant":
+        raise HTTPException(status_code=403, detail="Funcionalidade indisponível para restaurante")
+
+    debt = db.get(Debt, int(debt_id))
+    if not debt or debt.company_id != current_user.company_id or int(debt.branch_id) != int(current_user.branch_id):
+        raise HTTPException(status_code=404, detail="Dívida não encontrada")
+
+    return _build_debt_out(db, current_user, debt)
+
+
+@router.post("/{debt_id}/cancel", response_model=DebtOut)
+def cancel_debt(
+    debt_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    branch = db.get(Branch, int(current_user.branch_id))
+    if not branch or branch.company_id != current_user.company_id:
+        raise HTTPException(status_code=400, detail="Filial inválida")
+    business_type = (branch.business_type or "retail").strip().lower()
+    if business_type == "restaurant":
+        raise HTTPException(status_code=403, detail="Funcionalidade indisponível para restaurante")
+
+    debt = db.get(Debt, int(debt_id))
+    if not debt or debt.company_id != current_user.company_id or debt.branch_id != int(current_user.branch_id):
+        raise HTTPException(status_code=404, detail="Dívida não encontrada")
+    if (debt.status or "open") != "open":
+        raise HTTPException(status_code=400, detail="Apenas dívidas em aberto podem ser anuladas")
+    if getattr(debt, "sale_id", None):
+        raise HTTPException(status_code=409, detail="Não é possível anular: dívida já foi paga e vinculada a uma venda")
+
+    debt.status = "cancelled"
+    debt.paid_at = None
+    db.add(debt)
+    db.commit()
+    db.refresh(debt)
+    return _build_debt_out(db, current_user, debt)
+
+
+@router.delete("/{debt_id}")
+def delete_debt(
+    debt_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    branch = db.get(Branch, int(current_user.branch_id))
+    if not branch or branch.company_id != current_user.company_id:
+        raise HTTPException(status_code=400, detail="Filial inválida")
+    business_type = (branch.business_type or "retail").strip().lower()
+    if business_type == "restaurant":
+        raise HTTPException(status_code=403, detail="Funcionalidade indisponível para restaurante")
+
+    debt = db.get(Debt, int(debt_id))
+    if not debt or debt.company_id != current_user.company_id or debt.branch_id != int(current_user.branch_id):
+        raise HTTPException(status_code=404, detail="Dívida não encontrada")
+
+    if getattr(debt, "sale_id", None):
+        raise HTTPException(status_code=409, detail="Não é possível apagar: dívida já foi paga e vinculada a uma venda")
+
+    # Only allow hard-delete for manual debts to avoid deleting system-generated billing records.
+    if (getattr(debt, "origin_source", None) or "").strip():
+        raise HTTPException(status_code=403, detail="Não é possível apagar: dívida gerada automaticamente pelo sistema")
+
+    if (debt.status or "open") != "open":
+        raise HTTPException(status_code=400, detail="Apenas dívidas em aberto podem ser apagadas")
+
+    items = db.scalars(
+        select(DebtItem)
+        .where(DebtItem.company_id == current_user.company_id)
+        .where(DebtItem.branch_id == int(current_user.branch_id))
+        .where(DebtItem.debt_id == int(debt.id))
+    ).all()
+    for it in items:
+        db.delete(it)
+
+    db.delete(debt)
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("", response_model=DebtOut)
 @router.post("/", response_model=DebtOut, include_in_schema=False)
 def create_debt(
