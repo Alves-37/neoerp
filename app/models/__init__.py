@@ -6,3 +6,6 @@ from .recipe import Recipe
 from .recipe_item import RecipeItem
 from .expense_category import ExpenseCategory
 from .expense import Expense
+from .product_option_group import ProductOptionGroup
+from .product_option import ProductOption
+from .sale_item_option import SaleItemOption

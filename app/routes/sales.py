@@ -13,6 +13,7 @@ from app.models.product import Product
 from app.models.product_stock import ProductStock
 from app.models.sale import Sale
 from app.models.sale_item import SaleItem
+from app.models.sale_item_option import SaleItemOption
 from app.models.stock_location import StockLocation
 from app.models.stock_movement import StockMovement
 from app.models.user import User
@@ -605,7 +606,15 @@ def create_sale(
         price = float(it.price_at_sale or 0)
         cost = float(it.cost_at_sale or 0)
 
-        line_net = round(price * qty, 2)
+        # Calcular ajuste de preço das opções (apenas para restaurantes)
+        options_price_adjustment = 0.0
+        if business_type == "restaurant" and hasattr(it, 'options') and it.options:
+            for opt in it.options:
+                options_price_adjustment += float(opt.price_adjustment or 0)
+
+        # Preço final já inclui ajustes das opções
+        final_price = price
+        line_net = round(final_price * qty, 2)
         rate = float(getattr(product, "tax_rate", 0) or 0)
         line_tax = round(line_net * (rate / 100.0), 2) if include_tax and rate > 0 else 0.0
         line_total = round(line_net + line_tax, 2)
@@ -628,18 +637,17 @@ def create_sale(
             key = (int(product.id), int(loc.id))
             stock_deductions[key] = float(stock_deductions.get(key, 0.0)) + qty
 
-        items_to_create.append(
-            SaleItem(
-                company_id=current_user.company_id,
-                branch_id=int(current_user.branch_id),
-                sale_id=0,  # placeholder
-                product_id=it.product_id,
-                qty=qty,
-                price_at_sale=price,
-                cost_at_sale=cost,
-                line_total=line_total,
-            )
+        sale_item = SaleItem(
+            company_id=current_user.company_id,
+            branch_id=int(current_user.branch_id),
+            sale_id=0,  # placeholder
+            product_id=it.product_id,
+            qty=qty,
+            price_at_sale=final_price,
+            cost_at_sale=cost,
+            line_total=line_total,
         )
+        items_to_create.append((sale_item, getattr(it, 'options', [])))
 
     gross_total = round(net_total + tax_total, 2)
     payable_total = round(max(0.0, gross_total - discount_value), 2)
@@ -673,9 +681,24 @@ def create_sale(
         db.add(sale)
         db.flush()
 
-        for item in items_to_create:
-            item.sale_id = sale.id
-            db.add(item)
+        for sale_item, options in items_to_create:
+            sale_item.sale_id = sale.id
+            db.add(sale_item)
+            db.flush()  # Para obter o ID do sale_item
+            
+            # Salvar opções do item (se existirem)
+            for opt in options:
+                sale_item_option = SaleItemOption(
+                    company_id=current_user.company_id,
+                    branch_id=int(current_user.branch_id),
+                    sale_item_id=sale_item.id,
+                    option_group_id=opt.option_group_id,
+                    option_id=opt.option_id,
+                    option_name=opt.option_name,
+                    price_adjustment=opt.price_adjustment,
+                    ingredient_impact=opt.ingredient_impact,
+                )
+                db.add(sale_item_option)
 
         # Apply stock deductions (if any)
         for (product_id, location_id), qty_sum in stock_deductions.items():
