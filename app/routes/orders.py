@@ -456,8 +456,8 @@ def close_order(
                 .where(ProductStock.location_id == product.default_location_id)
             ).scalar_one_or_none()
             
-            if stock and stock.quantity is not None:
-                stock.quantity = max(0, stock.quantity - i.qty)
+            if stock and stock.qty_on_hand is not None:
+                stock.qty_on_hand = max(0, stock.qty_on_hand - i.qty)
 
     o.status = "closed"
     db.add(o)
