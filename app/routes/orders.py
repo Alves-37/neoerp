@@ -445,35 +445,45 @@ def close_order(
         )
         
         # Deduzir estoque do produto
-        product = db.get(Product, i.product_id)
-        if product and product.track_stock:
-            # Buscar estoque do produto na filial atual
-            stock = db.execute(
-                select(ProductStock)
-                .where(ProductStock.company_id == current_user.company_id)
-                .where(ProductStock.branch_id == getattr(o, "branch_id", current_user.branch_id))
-                .where(ProductStock.product_id == i.product_id)
-                .where(ProductStock.location_id == product.default_location_id)
-            ).scalar_one_or_none()
-            
-            if stock and stock.qty_on_hand is not None:
-                stock.qty_on_hand = max(0, stock.qty_on_hand - i.qty)
+        try:
+            product = db.get(Product, i.product_id)
+            if product and product.track_stock:
+                # Buscar estoque do produto na filial atual
+                stock = db.execute(
+                    select(ProductStock)
+                    .where(ProductStock.company_id == current_user.company_id)
+                    .where(ProductStock.branch_id == getattr(o, "branch_id", current_user.branch_id))
+                    .where(ProductStock.product_id == i.product_id)
+                    .where(ProductStock.location_id == product.default_location_id)
+                ).scalar_one_or_none()
+                
+                if stock and stock.qty_on_hand is not None:
+                    stock.qty_on_hand = max(0, stock.qty_on_hand - i.qty)
+        except Exception as e:
+            # Se falhar a dedução de estoque, continua com o fechamento do pedido
+            print(f"Erro ao deduzir estoque do produto {i.product_id}: {e}")
+            pass
 
     o.status = "closed"
     db.add(o)
 
     # Liberar mesa
-    table = db.execute(
-        select(RestaurantTable)
-        .where(RestaurantTable.company_id == current_user.company_id)
-        .where(RestaurantTable.branch_id == getattr(o, "branch_id", current_user.branch_id))
-        .where(RestaurantTable.number == o.table_number)
-    ).scalar_one_or_none()
-    
-    if table:
-        table.status = "available"
-        table.current_order_id = None
-        table.customer_name = None
+    try:
+        table = db.execute(
+            select(RestaurantTable)
+            .where(RestaurantTable.company_id == current_user.company_id)
+            .where(RestaurantTable.branch_id == getattr(o, "branch_id", current_user.branch_id))
+            .where(RestaurantTable.number == o.table_number)
+        ).scalar_one_or_none()
+        
+        if table:
+            table.status = "available"
+            table.current_order_id = None
+            table.customer_name = None
+    except Exception as e:
+        # Se falhar a liberação da mesa, continua com o fechamento
+        print(f"Erro ao liberar mesa {o.table_number}: {e}")
+        pass
 
     db.commit()
 
