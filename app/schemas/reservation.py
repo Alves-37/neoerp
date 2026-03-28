@@ -10,7 +10,7 @@ class ReservationBase(BaseModel):
     
     table_id: int = Field(..., description="ID da mesa")
     reservation_date: datetime = Field(..., description="Data e hora da reserva")
-    time_slot: str = Field(..., pattern="^(almoço|jantar)$", description="Turno: almoço ou jantar")
+    time_slot: str = Field(..., pattern="^(manhã|almoço|lanche|jantar)$", description="Turno: manhã, almoço, lanche ou jantar")
     people_count: int = Field(..., ge=1, le=20, description="Número de pessoas")
     
     estimated_amount: Optional[float] = Field(None, ge=0, description="Valor estimado da conta")
@@ -34,7 +34,7 @@ class ReservationUpdate(BaseModel):
     
     table_id: Optional[int] = None
     reservation_date: Optional[datetime] = None
-    time_slot: Optional[str] = Field(None, pattern="^(almoço|jantar)$")
+    time_slot: Optional[str] = Field(None, pattern="^(manhã|almoço|lanche|jantar)$")
     people_count: Optional[int] = Field(None, ge=1, le=20)
     
     estimated_amount: Optional[float] = Field(None, ge=0)
