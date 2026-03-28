@@ -13,7 +13,7 @@ from app.schemas.reservation import (
     ReservationResponse,
     ReservationListResponse
 )
-from app.utils.auth import get_current_user
+from app.deps import get_current_user
 
 router = APIRouter(prefix="/reservations", tags=["reservations"])
 
