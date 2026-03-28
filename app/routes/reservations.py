@@ -6,7 +6,7 @@ from sqlalchemy import and_, or_, func
 
 from app.database import get_db
 from app.models.reservations import Reservation
-from app.models.users import User
+from app.models.user import User
 from app.schemas.reservation import (
     ReservationCreate,
     ReservationUpdate,
