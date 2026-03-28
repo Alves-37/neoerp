@@ -6,7 +6,7 @@ import logging
 import os
 import time
 
-from app.routes import auth, branches, cash_sessions, companies, customers, dashboard, debts, debug_menu, delivery_zones, establishments, expense_categories, expenses, fiscal_documents, legacy_public_api, orders, printers, product_categories, product_options, product_stocks, products, public_menu, quotes, reports, restaurant_tables, sales, stock_adjustments, stock_locations, stock_movements, stock_transfers, supplier_payments, supplier_purchases, suppliers, users
+from app.routes import auth, branches, cash_sessions, companies, customers, dashboard, debts, debug_menu, delivery_zones, establishments, expense_categories, expenses, fiscal_documents, legacy_public_api, orders, printers, product_categories, product_options, product_stocks, products, public_menu, quotes, reports, reservations, restaurant_tables, sales, stock_adjustments, stock_locations, stock_movements, stock_transfers, supplier_payments, supplier_purchases, suppliers, users
 from app.settings import Settings
 
 settings = Settings()
@@ -49,6 +49,7 @@ app.include_router(expense_categories.router, prefix="/expense-categories", tags
 app.include_router(expenses.router, prefix="/expenses", tags=["expenses"])
 app.include_router(fiscal_documents.router, prefix="/fiscal-documents", tags=["fiscal-documents"])
 app.include_router(quotes.router, prefix="/quotes", tags=["quotes"])
+app.include_router(reservations.router, prefix="/reservations", tags=["reservations"])
 app.include_router(public_menu.router, prefix="/public", tags=["public"])
 app.include_router(debug_menu.router, prefix="/public", tags=["debug"])
 app.include_router(legacy_public_api.router, prefix="/api", tags=["public-legacy"])
