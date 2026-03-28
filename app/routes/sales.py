@@ -70,8 +70,6 @@ def void_sale(
 
     if not getattr(current_user, "establishment_id", None):
         raise HTTPException(status_code=400, detail="Ponto inválido")
-    if business_type == "restaurant":
-        raise HTTPException(status_code=403, detail="Funcionalidade indisponível para restaurante")
 
     sale = db.get(Sale, sale_id)
     if not sale or sale.company_id != current_user.company_id or getattr(sale, "branch_id", None) != int(current_user.branch_id):
@@ -175,8 +173,6 @@ def edit_sale(
     if not branch or branch.company_id != current_user.company_id:
         raise HTTPException(status_code=400, detail="Filial inválida")
     business_type = (branch.business_type or "retail").strip().lower()
-    if business_type == "restaurant":
-        raise HTTPException(status_code=403, detail="Funcionalidade indisponível para restaurante")
 
     sale = db.get(Sale, sale_id)
     if not sale or sale.company_id != current_user.company_id or getattr(sale, "branch_id", None) != int(current_user.branch_id):
