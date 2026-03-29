@@ -307,62 +307,69 @@ def daily_z_pdf_elements(data: dict, company: dict) -> list:
 
 
 def cash_session_close_pdf_elements(data: dict, company: dict) -> list:
-    """PDF simplificado para fechamento de caixa - Funcional primeiro."""
+    """PDF elements for a single cash session close report - Enhanced version."""
     styles = getSampleStyleSheet()
     currency = (company.get('currency') or '').strip()
-    
-    # Header simples
+
+    # Enhanced header with more visual appeal
     elements = [
         _header_block('Fechamento de Caixa', f"Sessão #{data.get('id') or '-'} · {data.get('closed_at', '-')}", company),
-        Spacer(0, 10 * mm),
+        Spacer(0, 8 * mm),
     ]
-    
-    # Informações básicas
+
+    # Enhanced metadata table with better styling
     meta_rows = [
         ("Data do Fechamento", data.get("closed_at") or "-"),
         ("Funcionário", data.get("cashier_name") or "-"),
-        ("Nº da Sessão", str(data.get("id") or "-")),
+        ("Nº do Fechamento", str(data.get("id") or "-")),
         ("Estado", _status_label(data.get("status"))),
     ]
-    
+
+    # Create a more visually appealing meta section
     meta_table = _meta_table(meta_rows)
     elements.extend([
         meta_table,
-        Spacer(0, 10 * mm),
+        Spacer(0, 8 * mm),
     ])
-    
-    # Resumo financeiro
+
+    # Financial metrics with color coding
     opening = float(data.get("opening") or 0)
     cash_sales_total = float(data.get("cash_sales_total") or 0)
     cash_expenses_total = float(data.get("cash_expenses_total") or 0)
     expected = float(data.get("expected") or 0)
     counted = float(data.get("counted") or 0)
     difference = float(data.get("difference") or 0)
-    
+
+    # Enhanced metric cards with better visual hierarchy
     elements.extend([
         _metric_cards([
             ('Saldo Inicial', _fmt_money(opening, currency)),
             ('Vendas Dinheiro', _fmt_money(cash_sales_total, currency)),
             ('Despesas', _fmt_money(-cash_expenses_total, currency)),
             ('Saldo Esperado', _fmt_money(expected, currency)),
+        ]),
+        Spacer(0, 6 * mm),
+        _metric_cards([
             ('Valor Contado', _fmt_money(counted, currency)),
             ('Diferença', _fmt_money(difference, currency)),
+            ('Status', "OK" if abs(difference) < 0.01 else "Diferença"),
+            ('Total Movimento', _fmt_money(cash_sales_total - cash_expenses_total, currency)),
         ]),
-        Spacer(0, 12 * mm),
+        Spacer(0, 10 * mm),
     ])
-    
+
     # ITENS VENDIDOS - SEÇÃO MAIS IMPORTANTE!
     if data.get('items') and len(data['items']) > 0:
         elements.append(Paragraph('<font size=12><b>📦 ITENS VENDIDOS NA SESSÃO</b></font>', styles['Normal']))
         elements.append(Spacer(0, 6 * mm))
         
-        # Tabela simples de itens
+        # Tabela de itens vendidos
         items_data = []
         total_items = 0
         total_value = 0
         
         for item in data['items']:
-            item_name = item.get('product_name', f"Produto #{item.get('product_id', '-')}")
+            item_name = item.get('product_name', f"Produto #{item.get('product_id', '-')}") or '-'
             quantity = int(item.get('quantity', 0))
             unit_price = float(item.get('unit_price', 0))
             item_total = float(item.get('total', 0))
@@ -394,55 +401,72 @@ def cash_session_close_pdf_elements(data: dict, company: dict) -> list:
             ),
             Spacer(0, 12 * mm),
         ])
-    
-    # Despesas (se houver)
-    if data.get('expenses') and len(data['expenses']) > 0:
-        elements.append(Paragraph('<font size=12><b>📋 DESPESAS REGISTRADAS</b></font>', styles['Normal']))
-        elements.append(Spacer(0, 6 * mm))
-        
-        expenses_data = []
-        for expense in data['expenses']:
-            expenses_data.append([
-                expense.get('category', '-'),
-                expense.get('description', '-'),
-                _fmt_money(float(expense.get('amount', 0) or 0), currency)
-            ])
-        
-        elements.extend([
-            _styled_table(
-                [['Categoria', 'Descrição', 'Valor']],
-                expenses_data,
-                col_widths=[40 * mm, 80 * mm, 40 * mm],
-                aligns=['LEFT', 'LEFT', 'RIGHT']
-            ),
-            Spacer(0, 12 * mm),
-        ])
-    
-    # Observações
-    if data.get('notes'):
-        elements.extend([
-            Paragraph('<font size=12><b>📝 Observações</b></font>', styles['Normal']),
-            Spacer(0, 6 * mm),
-            Paragraph(data.get('notes', ''), styles['Normal']),
-            Spacer(0, 12 * mm),
-        ])
-    
-    # Assinaturas
+
+    # Detailed financial summary table
     elements.extend([
-        Paragraph('<font size=12><b>✍️ Assinaturas</b></font>', styles['Normal']),
-        Spacer(0, 6 * mm),
-        Table([
+        Paragraph('Resumo Financeiro Detalhado', ParagraphStyle('secCashSess', parent=styles['Normal'], fontSize=12, textColor=colors.HexColor('#1f2937'), spaceAfter=4*mm)),
+        _styled_table(
+            ['Descrição', 'Valor', 'Tipo'],
             [
-                Paragraph('<font size=10><b>Funcionário Responsável</b></font>', styles['Normal']),
-                Paragraph('<font size=10><b>Supervisor</b></font>', styles['Normal']),
+                ['Saldo Inicial', _fmt_money(opening, currency), 'Abertura'],
+                ['Vendas em Dinheiro', _fmt_money(cash_sales_total, currency), 'Entrada'],
+                ['Despesas em Dinheiro', _fmt_money(-cash_expenses_total, currency), 'Saída'],
+                ['Saldo Esperado', _fmt_money(expected, currency), 'Cálculo'],
+                ['Valor Contado', _fmt_money(counted, currency), 'Real'],
+                ['Diferença', _fmt_money(difference, currency), 'Ajuste'],
             ],
-            [
-                Paragraph(f'<font size=10>{data.get("cashier_name", "-")}</font>', styles['Normal']),
-                Paragraph('<font size=10>_________________________</font>', styles['Normal']),
-            ],
-        ], colWidths=[80 * mm, 80 * mm]),
+            col_widths=[None, 35 * mm, 20 * mm],
+            aligns=['LEFT', 'RIGHT', 'CENTER'],
+        ),
     ])
-    
+
+    # Enhanced expenses section
+    expenses = data.get('expenses') or []
+    if expenses:
+        elements.extend([
+            Spacer(0, 10 * mm),
+            Paragraph('Despesas do Período', ParagraphStyle('secCashSessExp', parent=styles['Normal'], fontSize=12, textColor=colors.HexColor('#1f2937'), spaceAfter=4*mm)),
+            _styled_table(
+                ['Categoria', 'Descrição', 'Valor', 'Data'],
+                [
+                    [
+                        (e.get('category') or '-'), 
+                        (e.get('description') or '-'), 
+                        _fmt_money(e.get('amount') or 0, currency),
+                        (e.get('date') or '-')
+                    ] for e in expenses
+                ],
+                col_widths=[30 * mm, None, 25 * mm, 20 * mm],
+                aligns=['LEFT', 'LEFT', 'RIGHT', 'CENTER'],
+            ),
+        ])
+
+    # Enhanced notes section
+    notes = (data.get('notes') or '').strip()
+    if notes:
+        elements.extend([
+            Spacer(0, 10 * mm),
+            Paragraph('Observações e Anotações', ParagraphStyle('secCashSessNotes', parent=styles['Normal'], fontSize=12, textColor=colors.HexColor('#1f2937'), spaceAfter=4*mm)),
+            # Create a bordered note box
+            _styled_table(
+                ['Observações'],
+                [[Paragraph(notes, ParagraphStyle('cashSessNotes', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#374151')))]],
+                col_widths=[None],
+                aligns=['LEFT'],
+            ),
+        ])
+
+    # Add signature section
+    elements.extend([
+        Spacer(0, 15 * mm),
+        _styled_table(
+            ['Assinatura do Responsável', 'Data', 'Hora'],
+            [['_________________________', data.get("closed_at", "-")[:10] if data.get("closed_at") else "-", data.get("closed_at", "-")[11:19] if data.get("closed_at") else "-"]],
+            col_widths=[60 * mm, 30 * mm, 30 * mm],
+            aligns=['CENTER', 'CENTER', 'CENTER'],
+        ),
+    ])
+
     return elements
 
 
