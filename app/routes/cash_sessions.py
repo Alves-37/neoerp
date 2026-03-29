@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 from io import BytesIO
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -111,6 +111,9 @@ def cash_session_summary(
 
     paid_statuses = ["paid", "completed", "closed"]
 
+    # Mudança: filtrar por data da sessão em vez de cash_session_id
+    session_date = row.opened_at.date() if row.opened_at else datetime.now().date()
+
     totals_row = db.execute(
         select(
             func.count(Sale.id).label("sales_count"),
@@ -122,7 +125,7 @@ def cash_session_summary(
         .where(Sale.company_id == current_user.company_id)
         .where(Sale.branch_id == int(current_user.branch_id))
         .where(Sale.establishment_id == int(current_user.establishment_id))
-        .where(Sale.cash_session_id == row.id)
+        .where(func.date(Sale.created_at) == session_date)  # Mudança chave: filtrar por data
         .where(Sale.status.in_(paid_statuses))
     ).one()
 
@@ -138,7 +141,7 @@ def cash_session_summary(
         .where(Sale.company_id == current_user.company_id)
         .where(Sale.branch_id == int(current_user.branch_id))
         .where(Sale.establishment_id == int(current_user.establishment_id))
-        .where(Sale.cash_session_id == row.id)
+        .where(func.date(Sale.created_at) == session_date)  # Mudança chave: filtrar por data
         .where(Sale.status.in_(paid_statuses))
         .group_by(Sale.payment_method)
         .order_by(Sale.payment_method.asc())
@@ -289,7 +292,10 @@ def cash_session_items(
 
     paid_statuses = ["paid", "completed", "closed"]
 
-    # Buscar itens vendidos nesta sessão
+    # Mudança: filtrar por data da sessão em vez de cash_session_id
+    session_date = row.opened_at.date() if row.opened_at else datetime.now().date()
+
+    # Buscar itens vendidos neste dia (mudança para filtrar por data)
     items_query = (
         select(
             SaleItem.product_id,
@@ -304,7 +310,7 @@ def cash_session_items(
         .where(Sale.company_id == current_user.company_id)
         .where(Sale.branch_id == int(current_user.branch_id))
         .where(Sale.establishment_id == int(current_user.establishment_id))
-        .where(Sale.cash_session_id == row.id)
+        .where(func.date(Sale.created_at) == session_date)  # Mudança: filtrar por data
         .where(Sale.status.in_(paid_statuses))
         .group_by(SaleItem.product_id, Product.name, SaleItem.price_at_sale)
         .order_by(Product.name.asc())
@@ -373,15 +379,21 @@ def cash_session_close_pdf(
     )
 
     # Buscar detalhes das despesas
-    expenses = db.execute(
-        select(Expense)
+    session_date = datetime.strptime(row.closed_at.strftime('%Y-%m-%d'), '%Y-%m-%d')
+    expenses_rows = db.execute(
+        select(
+            Expense.category,
+            Expense.description,
+            Expense.amount,
+            Expense.created_at,
+        )
+        .select_from(Expense)
         .where(Expense.company_id == current_user.company_id)
         .where(Expense.branch_id == int(current_user.branch_id))
         .where(Expense.establishment_id == int(current_user.establishment_id))
-        .where(Expense.paid_cash_session_id == row.id)
-        .where(Expense.status == "paid")
-        .where(Expense.is_void.is_(False))
-    ).scalars().all()
+        .where(func.date(Expense.created_at) == session_date)  # Mudança: filtrar por data
+        .order_by(Expense.created_at.desc())
+    ).all()
 
     opening = float(row.opening_balance or 0)
     expected = opening + float(cash_sales_total or 0) - float(cash_expenses_total or 0)
