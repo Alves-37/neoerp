@@ -362,79 +362,89 @@ def update_order(
     if not is_admin and getattr(o, "branch_id", None) != current_user.branch_id:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
 
-    data = payload.model_dump(exclude_unset=True)
-    prev_status = (getattr(o, "status", None) or "").strip().lower()
-    
-    # Atualizar campos básicos
-    if "table_number" in data and data["table_number"] is not None:
-        try:
-            o.table_number = int(data["table_number"])
-        except (ValueError, TypeError):
-            pass
-    
-    if "seat_number" in data and data["seat_number"] is not None:
-        try:
-            o.seat_number = int(data["seat_number"])
-        except (ValueError, TypeError):
-            pass
-    
-    if "status" in data and data["status"] is not None:
-        st = str(data["status"]).strip().lower()
-        if st not in {"open", "in_progress", "closed", "cancelled"}:
-            raise HTTPException(status_code=400, detail="Status inválido")
-        o.status = st
-
-        if st == "in_progress" and prev_status != "in_progress":
-            _consume_stock_for_order(db, current_user, o)
-
-    # ATUALIZAR ITENS
-    if "items" in data and data["items"] is not None:
-        # Remover todos os itens existentes do pedido
-        existing_items = db.scalars(
-            select(OrderItem)
-            .where(OrderItem.company_id == current_user.company_id)
-            .where(OrderItem.branch_id == int(getattr(o, "branch_id", current_user.branch_id)))
-            .where(OrderItem.order_id == o.id)
-        ).all()
+    try:
+        data = payload.model_dump(exclude_unset=True)
+        prev_status = (getattr(o, "status", None) or "").strip().lower()
         
-        for item in existing_items:
-            db.delete(item)
+        # Atualizar campos básicos
+        if "table_number" in data and data["table_number"] is not None:
+            try:
+                o.table_number = int(data["table_number"])
+            except (ValueError, TypeError):
+                pass
         
-        # Adicionar novos itens
-        for it in data["items"]:
-            product = db.get(Product, int(it.product_id))
-            if (
-                not product
-                or product.company_id != current_user.company_id
-                or int(getattr(product, "branch_id", 0) or 0) != int(getattr(o, "branch_id", 0) or 0)
-                or product.business_type != "restaurant"
-            ):
-                raise HTTPException(status_code=400, detail=f"Produto inválido: {it.product_id}")
+        if "seat_number" in data and data["seat_number"] is not None:
+            try:
+                o.seat_number = int(data["seat_number"])
+            except (ValueError, TypeError):
+                pass
+        
+        if "status" in data and data["status"] is not None:
+            st = str(data["status"]).strip().lower()
+            if st not in {"open", "in_progress", "closed", "cancelled"}:
+                raise HTTPException(status_code=400, detail="Status inválido")
+            o.status = st
 
-            qty = float(it.qty or 0)
-            if qty <= 0:
-                raise HTTPException(status_code=400, detail="Quantidade inválida")
+            if st == "in_progress" and prev_status != "in_progress":
+                _consume_stock_for_order(db, current_user, o)
 
-            price = float(it.price_at_order or 0)
-            cost = float(it.cost_at_order or 0)
-            line_total = round(price * qty, 2)
+        # ATUALIZAR ITENS
+        if "items" in data and data["items"] is not None:
+            # Remover todos os itens existentes do pedido
+            existing_items = db.scalars(
+                select(OrderItem)
+                .where(OrderItem.company_id == current_user.company_id)
+                .where(OrderItem.branch_id == int(getattr(o, "branch_id", current_user.branch_id)))
+                .where(OrderItem.order_id == o.id)
+            ).all()
+            
+            for item in existing_items:
+                db.delete(item)
+            
+            # Adicionar novos itens
+            for it in data["items"]:
+                product = db.get(Product, int(it.product_id))
+                if (
+                    not product
+                    or product.company_id != current_user.company_id
+                    or int(getattr(product, "branch_id", 0) or 0) != int(getattr(o, "branch_id", 0) or 0)
+                    or product.business_type != "restaurant"
+                ):
+                    raise HTTPException(status_code=400, detail=f"Produto inválido: {it.product_id}")
 
-            # Criar novo OrderItem
-            order_item = OrderItem(
-                company_id=current_user.company_id,
-                branch_id=int(current_user.branch_id),
-                order_id=o.id,
-                product_id=it.product_id,
-                qty=qty,
-                price_at_order=price,
-                cost_at_order=cost,
-                line_total=line_total,
-            )
-            db.add(order_item)
+                qty = float(it.qty or 0)
+                if qty <= 0:
+                    raise HTTPException(status_code=400, detail="Quantidade inválida")
 
-    db.add(o)
-    db.commit()
-    db.refresh(o)
+                price = float(it.price_at_order or 0)
+                cost = float(it.cost_at_order or 0)
+                line_total = round(price * qty, 2)
+
+                # Criar novo OrderItem
+                order_item = OrderItem(
+                    company_id=current_user.company_id,
+                    branch_id=int(current_user.branch_id),
+                    order_id=o.id,
+                    product_id=it.product_id,
+                    qty=qty,
+                    price_at_order=price,
+                    cost_at_order=cost,
+                    line_total=line_total,
+                )
+                db.add(order_item)
+
+        db.add(o)
+        db.commit()
+        db.refresh(o)
+    except Exception as e:
+        import traceback
+        print(f"❌ ERROR in update_order: {str(e)}")
+        print(traceback.format_exc())
+        db.rollback()
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
+    
     return _get_order_out(db, current_user, o)
 
 
