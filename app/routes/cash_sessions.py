@@ -10,6 +10,7 @@ from app.database.connection import get_db
 from app.deps import get_current_user
 from app.models.cash_session import CashSession
 from app.models.sale import Sale
+from app.models.sale_item import SaleItem
 from app.models.expense import Expense
 from app.models.user import User
 from app.models.company import Company
@@ -264,6 +265,60 @@ def close_cash_session(
     db.commit()
     db.refresh(row)
     return row
+
+
+@router.get("/{cash_session_id}/items")
+def cash_session_items(
+    cash_session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Retorna todos os itens vendidos na sessão de caixa."""
+    row = db.get(CashSession, cash_session_id)
+    if not row or row.company_id != current_user.company_id or row.branch_id != int(current_user.branch_id):
+        raise HTTPException(status_code=404, detail="Caixa não encontrado")
+
+    if not getattr(current_user, "establishment_id", None):
+        raise HTTPException(status_code=400, detail="Ponto inválido")
+    if int(getattr(row, "establishment_id", 0) or 0) != int(current_user.establishment_id):
+        raise HTTPException(status_code=404, detail="Caixa não encontrado")
+
+    if (not _is_admin(current_user)) and row.opened_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Sem permissão para ver este caixa")
+
+    paid_statuses = ["paid", "completed", "closed"]
+
+    # Buscar itens vendidos nesta sessão
+    items_query = (
+        select(
+            SaleItem.product_id,
+            func.coalesce(SaleItem.product_name, "Produto #" + SaleItem.product_id.cast(str)).label("product_name"),
+            func.sum(SaleItem.quantity).label("quantity"),
+            func.coalesce(SaleItem.unit_price, 0).label("unit_price"),
+            func.sum(SaleItem.total).label("total"),
+        )
+        .select_from(SaleItem)
+        .join(Sale, SaleItem.sale_id == Sale.id)
+        .where(Sale.company_id == current_user.company_id)
+        .where(Sale.branch_id == int(current_user.branch_id))
+        .where(Sale.establishment_id == int(current_user.establishment_id))
+        .where(Sale.cash_session_id == row.id)
+        .where(Sale.status.in_(paid_statuses))
+        .group_by(SaleItem.product_id, SaleItem.product_name, SaleItem.unit_price)
+        .order_by(SaleItem.product_name.asc())
+    )
+
+    items = []
+    for product_id, product_name, quantity, unit_price, total in db.execute(items_query):
+        items.append({
+            "product_id": int(product_id),
+            "product_name": product_name or f"Produto #{product_id}",
+            "quantity": float(quantity or 0),
+            "unit_price": float(unit_price or 0),
+            "total": float(total or 0),
+        })
+
+    return items
 
 
 @router.get("/{cash_session_id}/close-pdf")
