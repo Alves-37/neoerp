@@ -429,6 +429,29 @@ def cash_session_close_pdf(
         .order_by(Expense.created_at.desc())
     ).all()
 
+    # Buscar itens vendidos no dia (mesma lógica do cash_session_items)
+    items_query = (
+        select(
+            SaleItem.product_id,
+            func.coalesce(Product.name, "Produto #" + func.cast(SaleItem.product_id, String)).label("product_name"),
+            func.sum(SaleItem.qty).label("quantity"),
+            func.coalesce(SaleItem.price_at_sale, 0).label("unit_price"),
+            func.sum(SaleItem.line_total).label("total"),
+        )
+        .select_from(SaleItem)
+        .join(Sale, SaleItem.sale_id == Sale.id)
+        .join(Product, SaleItem.product_id == Product.id)
+        .where(Sale.company_id == current_user.company_id)
+        .where(Sale.branch_id == int(current_user.branch_id))
+        .where(Sale.establishment_id == int(current_user.establishment_id))
+        .where(func.date(Sale.created_at) == session_date)  # Mudança: filtrar por data
+        .where(Sale.status.in_(paid_statuses))
+        .group_by(SaleItem.product_id, Product.name, SaleItem.price_at_sale)
+        .order_by(Product.name.asc())
+    )
+    
+    items_rows = db.execute(items_query).all()
+
     opening = float(row.opening_balance or 0)
     expected = opening + float(cash_sales_total or 0) - float(cash_expenses_total or 0)
     counted = float(row.closing_balance_counted or 0)
@@ -459,6 +482,17 @@ def cash_session_close_pdf(
                 "date": exp[3].strftime('%d/%m/%Y %H:%M') if exp[3] else '-',  # created_at
             }
             for exp in (expenses_rows or [])
+        ],
+        # ADICIONANDO OS ITENS VENDIDOS!
+        "items": [
+            {
+                "product_id": item[0],
+                "product_name": item[1],
+                "quantity": int(item[2]),
+                "unit_price": float(item[3]),
+                "total": float(item[4]),
+            }
+            for item in (items_rows or [])
         ],
         "notes": row.notes,
     }
