@@ -11,6 +11,7 @@ from app.deps import get_current_user
 from app.models.cash_session import CashSession
 from app.models.sale import Sale
 from app.models.sale_item import SaleItem
+from app.models.product import Product
 from app.models.expense import Expense
 from app.models.user import User
 from app.models.company import Company
@@ -292,20 +293,21 @@ def cash_session_items(
     items_query = (
         select(
             SaleItem.product_id,
-            func.coalesce(SaleItem.product_name, "Produto #" + SaleItem.product_id.cast(str)).label("product_name"),
-            func.sum(SaleItem.quantity).label("quantity"),
-            func.coalesce(SaleItem.unit_price, 0).label("unit_price"),
-            func.sum(SaleItem.total).label("total"),
+            func.coalesce(Product.name, "Produto #" + SaleItem.product_id.cast(str)).label("product_name"),
+            func.sum(SaleItem.qty).label("quantity"),
+            func.coalesce(SaleItem.price_at_sale, 0).label("unit_price"),
+            func.sum(SaleItem.line_total).label("total"),
         )
         .select_from(SaleItem)
         .join(Sale, SaleItem.sale_id == Sale.id)
+        .join(Product, SaleItem.product_id == Product.id)
         .where(Sale.company_id == current_user.company_id)
         .where(Sale.branch_id == int(current_user.branch_id))
         .where(Sale.establishment_id == int(current_user.establishment_id))
         .where(Sale.cash_session_id == row.id)
         .where(Sale.status.in_(paid_statuses))
-        .group_by(SaleItem.product_id, SaleItem.product_name, SaleItem.unit_price)
-        .order_by(SaleItem.product_name.asc())
+        .group_by(SaleItem.product_id, Product.name, SaleItem.price_at_sale)
+        .order_by(Product.name.asc())
     )
 
     items = []
