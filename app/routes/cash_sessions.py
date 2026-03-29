@@ -453,11 +453,12 @@ def cash_session_close_pdf(
         "difference": float(difference or 0),
         "expenses": [
             {
-                "category": getattr(exp.category, 'name', '-') if hasattr(exp, 'category') and exp.category else '-',
-                "description": (getattr(exp, 'description', '') or ''),
-                "amount": float(getattr(exp, 'amount', 0) or 0),
+                "category": exp[0] or '-',  # category_name
+                "description": exp[1] or '',  # description
+                "amount": float(exp[2] or 0),  # amount
+                "date": exp[3].strftime('%d/%m/%Y %H:%M') if exp[3] else '-',  # created_at
             }
-            for exp in (expenses or [])
+            for exp in (expenses_rows or [])
         ],
         "notes": row.notes,
     }
