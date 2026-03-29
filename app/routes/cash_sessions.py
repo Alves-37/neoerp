@@ -149,13 +149,29 @@ def cash_session_summary(
 
     by_payment: list[CashSessionPaymentTotals] = []
     cash_sales_total = 0.0
+    mpesa_sales_total = 0.0
+    transfer_sales_total = 0.0
+    card_sales_total = 0.0
+    other_sales_total = 0.0
+    
     for pm, cnt, gross, net, tax in by_pay_rows:
         pm_s = (pm or "").strip() or "unknown"
         gross_f = float(gross or 0)
         net_f = float(net or 0)
         tax_f = float(tax or 0)
+        
+        # Acumular totais por método
         if pm_s == "cash":
             cash_sales_total = gross_f
+        elif pm_s == "mpesa":
+            mpesa_sales_total = gross_f
+        elif pm_s == "transfer":
+            transfer_sales_total = gross_f
+        elif pm_s == "card":
+            card_sales_total = gross_f
+        elif pm_s == "other":
+            other_sales_total = gross_f
+            
         by_payment.append(
             CashSessionPaymentTotals(
                 payment_method=pm_s,
@@ -201,7 +217,13 @@ def cash_session_summary(
         gross_total=float(getattr(totals_row, "gross_total", 0) or 0),
         net_total=float(getattr(totals_row, "net_total", 0) or 0),
         tax_total=float(getattr(totals_row, "tax_total", 0) or 0),
-        total_sales_all_methods=total_sales_all_methods,
+        total_sales_all_methods=float(getattr(totals_row, "gross_total", 0) or 0),
+        # Novos campos específicos por método
+        mpesa_sales_total=float(mpesa_sales_total or 0),
+        transfer_sales_total=float(transfer_sales_total or 0),
+        card_sales_total=float(card_sales_total or 0),
+        other_sales_total=float(other_sales_total or 0),
+        by_payment_methods=by_payment,
         by_payment_method=by_payment,
     )
 

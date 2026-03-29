@@ -61,4 +61,11 @@ class CashSessionSummaryOut(BaseModel):
     tax_total: float = 0
     total_sales_all_methods: float = 0
 
+    # Adicionando campos específicos por método de pagamento
+    mpesa_sales_total: float = 0
+    transfer_sales_total: float = 0
+    card_sales_total: float = 0
+    other_sales_total: float = 0
+    by_payment_methods: list[CashSessionPaymentTotals] = []
+
     by_payment_method: list[CashSessionPaymentTotals] = []
