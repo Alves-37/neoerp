@@ -364,6 +364,14 @@ def update_order(
 
     data = payload.model_dump(exclude_unset=True)
     prev_status = (getattr(o, "status", None) or "").strip().lower()
+    
+    # Atualizar campos básicos
+    if "table_number" in data and data["table_number"] is not None:
+        o.table_number = int(data["table_number"])
+    
+    if "seat_number" in data and data["seat_number"] is not None:
+        o.seat_number = int(data["seat_number"])
+    
     if "status" in data and data["status"] is not None:
         st = str(data["status"]).strip().lower()
         if st not in {"open", "in_progress", "closed", "cancelled"}:
@@ -372,6 +380,51 @@ def update_order(
 
         if st == "in_progress" and prev_status != "in_progress":
             _consume_stock_for_order(db, current_user, o)
+
+    # ATUALIZAR ITENS - Esta é a parte que faltava!
+    if "items" in data and data["items"] is not None:
+        # Remover todos os itens existentes do pedido
+        existing_items = db.scalars(
+            select(OrderItem)
+            .where(OrderItem.company_id == current_user.company_id)
+            .where(OrderItem.branch_id == getattr(o, "branch_id", None))
+            .where(OrderItem.order_id == o.id)
+        ).all()
+        
+        for item in existing_items:
+            db.delete(item)
+        
+        # Adicionar novos itens
+        for it in data["items"]:
+            product = db.get(Product, it.product_id)
+            if (
+                not product
+                or product.company_id != current_user.company_id
+                or getattr(product, "branch_id", None) != current_user.branch_id
+                or product.business_type != "restaurant"
+            ):
+                raise HTTPException(status_code=400, detail=f"Produto inválido: {it.product_id}")
+
+            qty = float(it.qty or 0)
+            if qty <= 0:
+                raise HTTPException(status_code=400, detail="Quantidade inválida")
+
+            price = float(it.price_at_order or 0)
+            cost = float(it.cost_at_order or 0)
+            line_total = round(price * qty, 2)
+
+            # Criar novo OrderItem
+            order_item = OrderItem(
+                company_id=current_user.company_id,
+                branch_id=int(current_user.branch_id),
+                order_id=o.id,
+                product_id=it.product_id,
+                qty=qty,
+                price_at_order=price,
+                cost_at_order=cost,
+                line_total=line_total,
+            )
+            db.add(order_item)
 
     db.add(o)
     db.commit()

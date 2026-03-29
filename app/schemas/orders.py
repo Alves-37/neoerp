@@ -28,6 +28,9 @@ class OrderCreate(BaseModel):
 
 class OrderUpdate(BaseModel):
     status: str | None = None
+    table_number: int | None = None
+    seat_number: int | None = None
+    items: list[OrderItemCreate] | None = None
 
 
 class OrderItemOut(BaseModel):
