@@ -307,88 +307,31 @@ def daily_z_pdf_elements(data: dict, company: dict) -> list:
 
 
 def cash_session_close_pdf_elements(data: dict, company: dict) -> list:
-    """PDF profissional para fechamento de caixa - Layout moderno e completo."""
+    """PDF simplificado para fechamento de caixa - Funcional primeiro."""
     styles = getSampleStyleSheet()
     currency = (company.get('currency') or '').strip()
     
-    # Cores profissionais
-    from reportlab.lib import colors as rl_colors
-    pdf_colors = {
-        'primary': rl_colors.HexColor('#2c3e50'),
-        'secondary': rl_colors.HexColor('#34495e'),
-        'accent': rl_colors.HexColor('#3498db'),
-        'success': rl_colors.HexColor('#27ae60'),
-        'warning': rl_colors.HexColor('#f39c12'),
-        'danger': rl_colors.HexColor('#e74c3c'),
-        'light': rl_colors.HexColor('#ecf0f1'),
-        'dark': rl_colors.HexColor('#2c3e50')
-    }
-    
-    # Estilos personalizados
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=24,
-        spaceAfter=6,
-        textColor=pdf_colors['dark'],
-        alignment=1,  # Center
-        borderWidth=0,
-        borderColor=pdf_colors['primary']
-    )
-    
-    subtitle_style = ParagraphStyle(
-        'CustomSubtitle',
-        parent=styles['Heading2'],
-        fontSize=14,
-        spaceAfter=20,
-        textColor=pdf_colors['secondary'],
-        alignment=1,  # Center
-    )
-    
-    section_style = ParagraphStyle(
-        'SectionTitle',
-        parent=styles['Heading2'],
-        fontSize=16,
-        spaceAfter=12,
-        spaceBefore=20,
-        textColor=pdf_colors['primary'],
-        borderWidth=0,
-        borderColor=pdf_colors['accent'],
-        borderPadding=5
-    )
-    
-    # Header profissional
+    # Header simples
     elements = [
+        _header_block('Fechamento de Caixa', f"Sessão #{data.get('id') or '-'} · {data.get('closed_at', '-')}", company),
         Spacer(0, 10 * mm),
-        Paragraph("RELATÓRIO DE FECHAMENTO DE CAIXA", title_style),
-        Paragraph(f"Sessão #{data.get('id') or '-'} · {data.get('closed_at', '-')}", subtitle_style),
-        
-        # Linha separadora
-        HRFlowable(width="100%", thickness=2, lineCap='round', color=pdf_colors['accent']),
-        Spacer(0, 15 * mm),
     ]
     
-    # Informações principais em tabela elegante
-    meta_data = [
-        ['<b>Data do Fechamento:</b>', data.get("closed_at") or "-"],
-        ['<b>Funcionário Responsável:</b>', data.get("cashier_name") or "-"],
-        ['<b>Nº da Sessão:</b>', str(data.get("id") or "-")],
-        ['<b>Estado da Sessão:</b>', _status_label(data.get("status"))],
+    # Informações básicas
+    meta_rows = [
+        ("Data do Fechamento", data.get("closed_at") or "-"),
+        ("Funcionário", data.get("cashier_name") or "-"),
+        ("Nº da Sessão", str(data.get("id") or "-")),
+        ("Estado", _status_label(data.get("status"))),
     ]
     
+    meta_table = _meta_table(meta_rows)
     elements.extend([
-        _styled_table(
-            [['Informações', 'Detalhes']],
-            meta_data,
-            col_widths=[60 * mm, 80 * mm],
-            aligns=['LEFT', 'LEFT'],
-            header_bg_color=pdf_colors['primary'],
-            header_text_color='white'
-        ),
-        Spacer(0, 20 * mm),
+        meta_table,
+        Spacer(0, 10 * mm),
     ])
     
-    # Resumo Financeiro com cards visuais
+    # Resumo financeiro
     opening = float(data.get("opening") or 0)
     cash_sales_total = float(data.get("cash_sales_total") or 0)
     cash_expenses_total = float(data.get("cash_expenses_total") or 0)
@@ -396,36 +339,24 @@ def cash_session_close_pdf_elements(data: dict, company: dict) -> list:
     counted = float(data.get("counted") or 0)
     difference = float(data.get("difference") or 0)
     
-    # Cards financeiros
-    elements.append(Paragraph("💰 RESUMO FINANCEIRO", section_style))
-    
-    financial_data = [
-        ['Saldo Inicial', _fmt_money(opening, currency), pdf_colors['light']],
-        ['Vendas em Dinheiro', _fmt_money(cash_sales_total, currency), pdf_colors['light']],
-        ['Despesas Pagas', _fmt_money(cash_expenses_total, currency), pdf_colors['light']],
-        ['Saldo Esperado', _fmt_money(expected, currency), pdf_colors['success']],
-        ['Valor Contado', _fmt_money(counted, currency), pdf_colors['light']],
-        ['Diferença', _fmt_money(difference, currency), pdf_colors['danger' if difference != 0 else 'success']],
-    ]
-    
     elements.extend([
-        _styled_table(
-            [['Descrição', 'Valor', 'Status']],
-            financial_data,
-            col_widths=[70 * mm, 40 * mm, 30 * mm],
-            aligns=['LEFT', 'RIGHT', 'CENTER'],
-            header_bg_color=pdf_colors['primary'],
-            header_text_color='white',
-            alternate_row_colors=[pdf_colors['light'], 'white']
-        ),
-        Spacer(0, 20 * mm),
+        _metric_cards([
+            ('Saldo Inicial', _fmt_money(opening, currency)),
+            ('Vendas Dinheiro', _fmt_money(cash_sales_total, currency)),
+            ('Despesas', _fmt_money(-cash_expenses_total, currency)),
+            ('Saldo Esperado', _fmt_money(expected, currency)),
+            ('Valor Contado', _fmt_money(counted, currency)),
+            ('Diferença', _fmt_money(difference, currency)),
+        ]),
+        Spacer(0, 12 * mm),
     ])
     
     # ITENS VENDIDOS - SEÇÃO MAIS IMPORTANTE!
     if data.get('items') and len(data['items']) > 0:
-        elements.append(Paragraph("📦 ITENS VENDIDOS NA SESSÃO", section_style))
+        elements.append(Paragraph('<font size=12><b>📦 ITENS VENDIDOS NA SESSÃO</b></font>', styles['Normal']))
+        elements.append(Spacer(0, 6 * mm))
         
-        # Tabela de itens vendidos
+        # Tabela simples de itens
         items_data = []
         total_items = 0
         total_value = 0
@@ -459,93 +390,58 @@ def cash_session_close_pdf_elements(data: dict, company: dict) -> list:
                 [['Produto', 'Qtd', 'Preço Unit.', 'Total']],
                 items_data,
                 col_widths=[80 * mm, 20 * mm, 30 * mm, 30 * mm],
-                aligns=['LEFT', 'CENTER', 'RIGHT', 'RIGHT'],
-                header_bg_color=pdf_colors['primary'],
-                header_text_color='white',
-                alternate_row_colors=['#f8f9fa', 'white'],
-                bottom_border_color=pdf_colors['success'],
-                bottom_border_width=2
+                aligns=['LEFT', 'CENTER', 'RIGHT', 'RIGHT']
             ),
-            Spacer(0, 20 * mm),
+            Spacer(0, 12 * mm),
         ])
     
     # Despesas (se houver)
     if data.get('expenses') and len(data['expenses']) > 0:
-        elements.append(Paragraph("📋 DESPESAS REGISTRADAS", section_style))
+        elements.append(Paragraph('<font size=12><b>📋 DESPESAS REGISTRADAS</b></font>', styles['Normal']))
+        elements.append(Spacer(0, 6 * mm))
         
         expenses_data = []
-        total_expenses = 0
-        
         for expense in data['expenses']:
-            category = expense.get('category', 'Sem categoria')
-            description = expense.get('description', '-')
-            amount = float(expense.get('amount', 0))
-            date = expense.get('date', '-')
-            
             expenses_data.append([
-                category,
-                description,
-                date,
-                _fmt_money(amount, currency)
+                expense.get('category', '-'),
+                expense.get('description', '-'),
+                _fmt_money(float(expense.get('amount', 0) or 0), currency)
             ])
-            
-            total_expenses += amount
-        
-        # Adicionar linha de total
-        expenses_data.append([
-            '<b>TOTAL DE DESPESAS</b>',
-            '',
-            '',
-            f'<b>{_fmt_money(total_expenses, currency)}</b>'
-        ])
         
         elements.extend([
             _styled_table(
-                [['Categoria', 'Descrição', 'Data', 'Valor']],
+                [['Categoria', 'Descrição', 'Valor']],
                 expenses_data,
-                col_widths=[40 * mm, 60 * mm, 30 * mm, 30 * mm],
-                aligns=['LEFT', 'LEFT', 'CENTER', 'RIGHT'],
-                header_bg_color=pdf_colors['primary'],
-                header_text_color='white',
-                alternate_row_colors=['#fef5e7', 'white']
+                col_widths=[40 * mm, 80 * mm, 40 * mm],
+                aligns=['LEFT', 'LEFT', 'RIGHT']
             ),
-            Spacer(0, 20 * mm),
+            Spacer(0, 12 * mm),
         ])
     
     # Observações
     if data.get('notes'):
-        elements.append(Paragraph("📝 OBSERVAÇÕES", section_style))
         elements.extend([
-            Table([
-                [Paragraph(data.get('notes', ''), styles['Normal'])]
-            ], colWidths=[160 * mm], style=TableStyle([
-                ('BACKGROUND', (0, 0), (-1, -1), pdf_colors['light']),
-                ('BORDER', (0, 0), (-1, -1), 1, pdf_colors['secondary']),
-                ('PADDING', (0, 0), (-1, -1), 10 * mm),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ])),
-            Spacer(0, 20 * mm),
+            Paragraph('<font size=12><b>📝 Observações</b></font>', styles['Normal']),
+            Spacer(0, 6 * mm),
+            Paragraph(data.get('notes', ''), styles['Normal']),
+            Spacer(0, 12 * mm),
         ])
     
     # Assinaturas
-    elements.append(Paragraph("✍️ ASSINATURAS", section_style))
-    
-    signature_data = [
-        ['_________________________', '_________________________'],
-        ['Funcionário Responsável', 'Supervisor/Autoridade'],
-        [data.get("cashier_name") or "-", ""]
-    ]
-    
-    elements.append(
-        Table(signature_data, colWidths=[80 * mm, 80 * mm], style=TableStyle([
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('FONTNAME', (0, 1), (-1, 1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, 1), 9),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 20 * mm),
-        ]))
-    )
+    elements.extend([
+        Paragraph('<font size=12><b>✍️ Assinaturas</b></font>', styles['Normal']),
+        Spacer(0, 6 * mm),
+        Table([
+            [
+                Paragraph('<font size=10><b>Funcionário Responsável</b></font>', styles['Normal']),
+                Paragraph('<font size=10><b>Supervisor</b></font>', styles['Normal']),
+            ],
+            [
+                Paragraph(f'<font size=10>{data.get("cashier_name", "-")}</font>', styles['Normal']),
+                Paragraph('<font size=10>_________________________</font>', styles['Normal']),
+            ],
+        ], colWidths=[80 * mm, 80 * mm]),
+    ])
     
     return elements
 
