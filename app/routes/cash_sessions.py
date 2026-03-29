@@ -416,7 +416,7 @@ def cash_session_close_pdf(
     
     expenses_rows = db.execute(
         select(
-            Expense.category,
+            Expense.category_name,  # Corrigido: category_name em vez de category
             Expense.description,
             Expense.amount,
             Expense.created_at,
