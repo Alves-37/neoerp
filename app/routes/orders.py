@@ -367,10 +367,16 @@ def update_order(
     
     # Atualizar campos básicos
     if "table_number" in data and data["table_number"] is not None:
-        o.table_number = int(data["table_number"])
+        try:
+            o.table_number = int(data["table_number"])
+        except (ValueError, TypeError):
+            pass
     
     if "seat_number" in data and data["seat_number"] is not None:
-        o.seat_number = int(data["seat_number"])
+        try:
+            o.seat_number = int(data["seat_number"])
+        except (ValueError, TypeError):
+            pass
     
     if "status" in data and data["status"] is not None:
         st = str(data["status"]).strip().lower()
@@ -381,13 +387,13 @@ def update_order(
         if st == "in_progress" and prev_status != "in_progress":
             _consume_stock_for_order(db, current_user, o)
 
-    # ATUALIZAR ITENS - Esta é a parte que faltava!
+    # ATUALIZAR ITENS
     if "items" in data and data["items"] is not None:
         # Remover todos os itens existentes do pedido
         existing_items = db.scalars(
             select(OrderItem)
             .where(OrderItem.company_id == current_user.company_id)
-            .where(OrderItem.branch_id == getattr(o, "branch_id", None))
+            .where(OrderItem.branch_id == int(getattr(o, "branch_id", current_user.branch_id)))
             .where(OrderItem.order_id == o.id)
         ).all()
         
@@ -396,11 +402,11 @@ def update_order(
         
         # Adicionar novos itens
         for it in data["items"]:
-            product = db.get(Product, it.product_id)
+            product = db.get(Product, int(it.product_id))
             if (
                 not product
                 or product.company_id != current_user.company_id
-                or getattr(product, "branch_id", None) != current_user.branch_id
+                or int(getattr(product, "branch_id", 0) or 0) != int(getattr(o, "branch_id", 0) or 0)
                 or product.business_type != "restaurant"
             ):
                 raise HTTPException(status_code=400, detail=f"Produto inválido: {it.product_id}")
