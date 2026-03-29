@@ -403,21 +403,22 @@ def update_order(
             
             # Adicionar novos itens
             for it in data["items"]:
-                product = db.get(Product, int(it.product_id))
+                product_id = it.get("product_id")
+                product = db.get(Product, int(product_id))
                 if (
                     not product
                     or product.company_id != current_user.company_id
                     or int(getattr(product, "branch_id", 0) or 0) != int(getattr(o, "branch_id", 0) or 0)
                     or product.business_type != "restaurant"
                 ):
-                    raise HTTPException(status_code=400, detail=f"Produto inválido: {it.product_id}")
+                    raise HTTPException(status_code=400, detail=f"Produto inválido: {product_id}")
 
-                qty = float(it.qty or 0)
+                qty = float(it.get("qty") or 0)
                 if qty <= 0:
                     raise HTTPException(status_code=400, detail="Quantidade inválida")
 
-                price = float(it.price_at_order or 0)
-                cost = float(it.cost_at_order or 0)
+                price = float(it.get("price_at_order") or 0)
+                cost = float(it.get("cost_at_order") or 0)
                 line_total = round(price * qty, 2)
 
                 # Criar novo OrderItem
@@ -425,7 +426,7 @@ def update_order(
                     company_id=current_user.company_id,
                     branch_id=int(current_user.branch_id),
                     order_id=o.id,
-                    product_id=it.product_id,
+                    product_id=product_id,
                     qty=qty,
                     price_at_order=price,
                     cost_at_order=cost,
