@@ -3,7 +3,7 @@ from io import BytesIO
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, String
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
@@ -293,7 +293,7 @@ def cash_session_items(
     items_query = (
         select(
             SaleItem.product_id,
-            func.coalesce(Product.name, "Produto #" + SaleItem.product_id.cast(str)).label("product_name"),
+            func.coalesce(Product.name, "Produto #" + func.cast(SaleItem.product_id, String)).label("product_name"),
             func.sum(SaleItem.qty).label("quantity"),
             func.coalesce(SaleItem.price_at_sale, 0).label("unit_price"),
             func.sum(SaleItem.line_total).label("total"),
