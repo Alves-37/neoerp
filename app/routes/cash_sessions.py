@@ -379,12 +379,19 @@ def cash_session_close_pdf(
 
     # Calcular totais de vendas
     paid_statuses = ["paid", "completed", "closed"]
+    
+    # Mudança: filtrar por data como no summary
+    if row.closed_at:
+        session_date = row.closed_at.date()
+    else:
+        session_date = row.opened_at.date() if row.opened_at else datetime.now().date()
+    
     cash_sales_total = db.scalar(
         select(func.coalesce(func.sum(Sale.total), 0))
         .where(Sale.company_id == current_user.company_id)
         .where(Sale.branch_id == int(current_user.branch_id))
         .where(Sale.establishment_id == int(current_user.establishment_id))
-        .where(Sale.cash_session_id == row.id)
+        .where(func.date(Sale.created_at) == session_date)  # Mudança: filtrar por data
         .where(Sale.payment_method == "cash")
         .where(Sale.status.in_(paid_statuses))
     )
@@ -401,7 +408,12 @@ def cash_session_close_pdf(
     )
 
     # Buscar detalhes das despesas
-    session_date = datetime.strptime(row.closed_at.strftime('%Y-%m-%d'), '%Y-%m-%d')
+    # Mudança: usar data de abertura se fechamento for None
+    if row.closed_at:
+        session_date = row.closed_at.date()
+    else:
+        session_date = row.opened_at.date() if row.opened_at else datetime.now().date()
+    
     expenses_rows = db.execute(
         select(
             Expense.category,
