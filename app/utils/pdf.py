@@ -121,7 +121,7 @@ def _header_block(title: str, subtitle: str, company: dict) -> Table:
 
 
 def _metric_cards(items: list[tuple[str, str]]) -> Table:
-    """Two-row grid of metric cards (4 metrics recommended)."""
+    """Two-row grid of metric cards (4 metrics recommended) - Enhanced visual design."""
     # Layout as 2 columns x 2 rows by default.
     pairs = list(items or [])
     while len(pairs) < 4:
@@ -131,20 +131,29 @@ def _metric_cards(items: list[tuple[str, str]]) -> Table:
         styles = getSampleStyleSheet()
         label_p = Paragraph(
             label or "&nbsp;",
-            ParagraphStyle('mLabel', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#6b7280')),
+            ParagraphStyle('mLabel', parent=styles['Normal'], fontSize=8, textColor=colors.HexColor('#6b7280')),
         )
+        
+        # Color code values based on content
+        value_color = colors.HexColor('#111827')
+        if 'OK' in str(value):
+            value_color = colors.HexColor('#059669')  # Green for OK
+        elif 'Diferença' in str(value) and any(x in str(value) for x in ['-', '(']):
+            value_color = colors.HexColor('#dc2626')  # Red for negative differences
+            
         value_p = Paragraph(
             f"<b>{value or ''}</b>",
-            ParagraphStyle('mValue', parent=styles['Normal'], fontSize=14, textColor=colors.HexColor('#111827'), leading=16),
+            ParagraphStyle('mValue', parent=styles['Normal'], fontSize=12, textColor=value_color, leading=14),
         )
-        t = Table([[label_p], [value_p]], colWidths=[None], rowHeights=[6.5 * mm, 9 * mm])
+        t = Table([[label_p], [value_p]], colWidths=[None], rowHeights=[6 * mm, 8 * mm])
         t.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, -1), colors.white),
-            ('BOX', (0, 0), (-1, -1), 0.6, colors.HexColor('#d1d5db')),
+            ('BOX', (0, 0), (-1, -1), 0.8, colors.HexColor('#e5e7eb')),
+            ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.HexColor('#f3f4f6')),
             ('LEFTPADDING', (0, 0), (-1, -1), 8),
             ('RIGHTPADDING', (0, 0), (-1, -1), 8),
             ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ]))
         return t
@@ -298,10 +307,17 @@ def daily_z_pdf_elements(data: dict, company: dict) -> list:
 
 
 def cash_session_close_pdf_elements(data: dict, company: dict) -> list:
-    """PDF elements for a single cash session close report."""
+    """PDF elements for a single cash session close report - Enhanced version."""
     styles = getSampleStyleSheet()
     currency = (company.get('currency') or '').strip()
 
+    # Enhanced header with more visual appeal
+    elements = [
+        _header_block('Fechamento de Caixa', f"Sessão #{data.get('id') or '-'} · {data.get('closed_at', '-')}", company),
+        Spacer(0, 8 * mm),
+    ]
+
+    # Enhanced metadata table with better styling
     meta_rows = [
         ("Data do Fechamento", data.get("closed_at") or "-"),
         ("Funcionário", data.get("cashier_name") or "-"),
@@ -309,6 +325,14 @@ def cash_session_close_pdf_elements(data: dict, company: dict) -> list:
         ("Estado", _status_label(data.get("status"))),
     ]
 
+    # Create a more visually appealing meta section
+    meta_table = _meta_table(meta_rows)
+    elements.extend([
+        meta_table,
+        Spacer(0, 8 * mm),
+    ])
+
+    # Financial metrics with color coding
     opening = float(data.get("opening") or 0)
     cash_sales_total = float(data.get("cash_sales_total") or 0)
     cash_expenses_total = float(data.get("cash_expenses_total") or 0)
@@ -316,57 +340,88 @@ def cash_session_close_pdf_elements(data: dict, company: dict) -> list:
     counted = float(data.get("counted") or 0)
     difference = float(data.get("difference") or 0)
 
-    elements = [
-        _header_block('Fechamento de Caixa', f"Sessão #{data.get('id') or '-'} (Africa/Maputo)", company),
-        Spacer(0, 6 * mm),
-        _meta_table(meta_rows),
+    # Enhanced metric cards with better visual hierarchy
+    elements.extend([
+        _metric_cards([
+            ('Saldo Inicial', _fmt_money(opening, currency)),
+            ('Vendas Dinheiro', _fmt_money(cash_sales_total, currency)),
+            ('Despesas', _fmt_money(-cash_expenses_total, currency)),
+            ('Saldo Esperado', _fmt_money(expected, currency)),
+        ]),
         Spacer(0, 6 * mm),
         _metric_cards([
-            ('Esperado (dinheiro)', _fmt_money(expected, currency)),
-            ('Contado', _fmt_money(counted, currency)),
+            ('Valor Contado', _fmt_money(counted, currency)),
             ('Diferença', _fmt_money(difference, currency)),
-            ('Vendas (dinheiro)', _fmt_money(cash_sales_total, currency)),
+            ('Status', "OK" if abs(difference) < 0.01 else "Diferença"),
+            ('Total Movimento', _fmt_money(cash_sales_total - cash_expenses_total, currency)),
         ]),
-        Spacer(0, 8 * mm),
-        Paragraph('Resumo financeiro', ParagraphStyle('secCashSess', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor('#111827'))),
-        Spacer(0, 3 * mm),
-        _styled_table(
-            ['Descrição', 'Valor'],
-            [
-                ['Abertura (fundo de caixa)', _fmt_money(opening, currency)],
-                ['Vendas em dinheiro', _fmt_money(cash_sales_total, currency)],
-                ['Despesas em dinheiro', _fmt_money(-cash_expenses_total, currency)],
-                ['Esperado (dinheiro)', _fmt_money(expected, currency)],
-                ['Contado', _fmt_money(counted, currency)],
-                ['Diferença', _fmt_money(difference, currency)],
-            ],
-            col_widths=[None, 45 * mm],
-            aligns=['LEFT', 'RIGHT'],
-        ),
-    ]
+        Spacer(0, 10 * mm),
+    ])
 
+    # Enhanced financial summary table
+    elements.extend([
+        Paragraph('Resumo Financeiro Detalhado', ParagraphStyle('secCashSess', parent=styles['Normal'], fontSize=12, textColor=colors.HexColor('#1f2937'), spaceAfter=4*mm)),
+        _styled_table(
+            ['Descrição', 'Valor', 'Tipo'],
+            [
+                ['Saldo Inicial', _fmt_money(opening, currency), 'Abertura'],
+                ['Vendas em Dinheiro', _fmt_money(cash_sales_total, currency), 'Entrada'],
+                ['Despesas em Dinheiro', _fmt_money(-cash_expenses_total, currency), 'Saída'],
+                ['Saldo Esperado', _fmt_money(expected, currency), 'Cálculo'],
+                ['Valor Contado', _fmt_money(counted, currency), 'Real'],
+                ['Diferença', _fmt_money(difference, currency), 'Ajuste'],
+            ],
+            col_widths=[None, 35 * mm, 20 * mm],
+            aligns=['LEFT', 'RIGHT', 'CENTER'],
+        ),
+    ])
+
+    # Enhanced expenses section
     expenses = data.get('expenses') or []
     if expenses:
         elements.extend([
-            Spacer(0, 8 * mm),
-            Paragraph('Despesas do período', ParagraphStyle('secCashSessExp', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor('#111827'))),
-            Spacer(0, 3 * mm),
+            Spacer(0, 10 * mm),
+            Paragraph('Despesas do Período', ParagraphStyle('secCashSessExp', parent=styles['Normal'], fontSize=12, textColor=colors.HexColor('#1f2937'), spaceAfter=4*mm)),
             _styled_table(
-                ['Categoria', 'Descrição', 'Valor'],
-                [[(e.get('category') or '-'), (e.get('description') or ''), _fmt_money(e.get('amount') or 0, currency)] for e in expenses],
-                col_widths=[36 * mm, None, 28 * mm],
-                aligns=['LEFT', 'LEFT', 'RIGHT'],
+                ['Categoria', 'Descrição', 'Valor', 'Data'],
+                [
+                    [
+                        (e.get('category') or '-'), 
+                        (e.get('description') or '-'), 
+                        _fmt_money(e.get('amount') or 0, currency),
+                        (e.get('date') or '-')
+                    ] for e in expenses
+                ],
+                col_widths=[30 * mm, None, 25 * mm, 20 * mm],
+                aligns=['LEFT', 'LEFT', 'RIGHT', 'CENTER'],
             ),
         ])
 
+    # Enhanced notes section
     notes = (data.get('notes') or '').strip()
     if notes:
         elements.extend([
-            Spacer(0, 8 * mm),
-            Paragraph('Observações', ParagraphStyle('secCashSessNotes', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor('#111827'))),
-            Spacer(0, 3 * mm),
-            Paragraph(notes, ParagraphStyle('cashSessNotes', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#111827'))),
+            Spacer(0, 10 * mm),
+            Paragraph('Observações e Anotações', ParagraphStyle('secCashSessNotes', parent=styles['Normal'], fontSize=12, textColor=colors.HexColor('#1f2937'), spaceAfter=4*mm)),
+            # Create a bordered note box
+            _styled_table(
+                ['Observações'],
+                [[Paragraph(notes, ParagraphStyle('cashSessNotes', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#374151')))]],
+                col_widths=[None],
+                aligns=['LEFT'],
+            ),
         ])
+
+    # Add signature section
+    elements.extend([
+        Spacer(0, 15 * mm),
+        _styled_table(
+            ['Assinatura do Responsável', 'Data', 'Hora'],
+            [['_________________________', data.get("closed_at", "-")[:10] if data.get("closed_at") else "-", data.get("closed_at", "-")[11:19] if data.get("closed_at") else "-"]],
+            col_widths=[60 * mm, 30 * mm, 30 * mm],
+            aligns=['CENTER', 'CENTER', 'CENTER'],
+        ),
+    ])
 
     return elements
 
