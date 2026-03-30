@@ -11,3 +11,4 @@ from .product_option import ProductOption
 from .sale_item_option import SaleItemOption
 from .sale_item_calculated_recipe import SaleItemCalculatedRecipe
 from .order_item_option import OrderItemOption
+from .reservations import Reservation
