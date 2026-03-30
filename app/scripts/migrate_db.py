@@ -1386,15 +1386,62 @@ def main():
                 );
                 """
             )
-        )
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_supplier_payments_company_id ON supplier_payments(company_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_supplier_payments_supplier_id ON supplier_payments(supplier_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_supplier_payments_purchase_id ON supplier_payments(purchase_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_supplier_payments_payment_date ON supplier_payments(payment_date)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_supplier_payments_reference ON supplier_payments(reference)"))
 
+        # reservations (reservas de mesas)
+        db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS reservations (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL REFERENCES companies(id),
+                    branch_id INTEGER NOT NULL REFERENCES branches(id),
+                    establishment_id INTEGER NULL REFERENCES establishments(id),
+                    customer_name VARCHAR(200) NOT NULL,
+                    customer_phone VARCHAR(50),
+                    customer_email VARCHAR(200),
+                    customer_nuit VARCHAR(50),
+                    table_id INTEGER NOT NULL,
+                    reservation_date TIMESTAMPTZ NOT NULL,
+                    time_slot VARCHAR(50) NOT NULL,
+                    people_count INTEGER NOT NULL,
+                    estimated_amount NUMERIC(10, 2),
+                    deposit_percentage NUMERIC(5, 2),
+                    deposit_amount NUMERIC(10, 2),
+                    payment_method VARCHAR(50),
+                    payment_status VARCHAR(50) NOT NULL DEFAULT 'pending',
+                    payment_reference VARCHAR(200),
+                    paid_at TIMESTAMPTZ,
+                    status VARCHAR(50) NOT NULL DEFAULT 'pending_payment',
+                    notes TEXT,
+                    special_requests TEXT,
+                    created_by INTEGER NOT NULL REFERENCES users(id),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    cancelled_at TIMESTAMPTZ,
+                    cancelled_by INTEGER REFERENCES users(id),
+                    cancellation_reason TEXT
+                );
+                """
+            )
+        )
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_reservations_company_id ON reservations(company_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_reservations_branch_id ON reservations(branch_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_reservations_establishment_id ON reservations(establishment_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_reservations_table_id ON reservations(table_id)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_reservations_reservation_date ON reservations(reservation_date)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_reservations_status ON reservations(status)"))
+
         db.commit()
         print('Migration completed successfully.')
+    except Exception as e:
+        db.rollback()
+        print(f"Error migrating database: {e}")
+        raise e
     finally:
         db.close()
 
