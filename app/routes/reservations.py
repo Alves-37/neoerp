@@ -15,7 +15,7 @@ from app.schemas.reservation import (
 )
 from app.deps import get_current_user
 
-router = APIRouter(prefix="/reservations", tags=["reservations"])
+router = APIRouter(tags=["reservations"])
 
 @router.get("/", response_model=ReservationListResponse)
 async def list_reservations(
