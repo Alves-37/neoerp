@@ -1386,6 +1386,7 @@ def main():
                 );
                 """
             )
+        )
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_supplier_payments_company_id ON supplier_payments(company_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_supplier_payments_supplier_id ON supplier_payments(supplier_id)"))
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_supplier_payments_purchase_id ON supplier_payments(purchase_id)"))
