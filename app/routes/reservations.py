@@ -22,6 +22,7 @@ async def list_reservations(
     date: Optional[str] = Query(None, description="Data no formato YYYY-MM-DD"),
     status: Optional[str] = Query(None, description="Status da reserva"),
     table_id: Optional[int] = Query(None, description="ID da mesa"),
+    establishment_id: Optional[int] = Query(None, description="ID do estabelecimento"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -34,6 +35,9 @@ async def list_reservations(
     )
     
     # Filtros
+    if establishment_id:
+        query = query.filter(Reservation.establishment_id == establishment_id)
+    
     if date:
         try:
             filter_date = datetime.strptime(date, "%Y-%m-%d").date()
